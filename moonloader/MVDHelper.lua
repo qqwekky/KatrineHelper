@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта, в интерфейсе и в запросах к ИИ используется UTF-8.
 
-local VERSION = '0.2.4'
+local VERSION = '0.2.5'
 
 script_name('MVD Helper')
 script_author('qqwekky')
@@ -4027,18 +4027,22 @@ function PG.laws()
             for _, a in ipairs(L.favorites()) do
                 if (not doc or a.doc == doc) and (q == '' or a.low:find(U.lower(q), 1, true) or a.n == q) then list[#list + 1] = a end
             end
+        elseif q == '' and doc then
+            -- документ выбран без запроса: показываем все его статьи по порядку
+            list = {}
+            for _, a in ipairs(L.flat) do if a.doc == doc and a.n ~= '0' then list[#list + 1] = a end end
         else
-            list = L.query(q, MODES[UI.lawMode][1], doc, 60)
+            list = L.query(q, MODES[UI.lawMode][1], doc, 200)
         end
         UI.lawCache.key, UI.lawCache.list = key, list
-        if not UI.lawSel or q ~= '' then UI.lawSel = list[1] end
+        UI.lawSel = list[1]
     end
     local list = UI.lawCache.list
     imgui.BeginChild('##lw_list', imgui.ImVec2(S(360), 0), true)
-    if q == '' and not UI.lawFav then
+    if q == '' and not UI.lawFav and not doc then
         UI.bold('Документы в базе', C.accent)
         for i, d in ipairs(L.docs) do
-            if imgui.Selectable(d.id .. '  ·  ' .. (d.title or '') .. ' (' .. #(d.articles or {}) .. ')##docsel' .. i, UI.lawDoc == i) then UI.lawDoc = i; UI.lawMode = 2; UI.setBuf(UI.buf.lawq, '1') end
+            if imgui.Selectable(d.id .. '  ·  ' .. (d.title or '') .. ' (' .. #(d.articles or {}) .. ')##docsel' .. i, UI.lawDoc == i) then UI.lawDoc = i; UI.lawMode = 1; UI.setBuf(UI.buf.lawq, ''); UI.lawSel = nil end
         end
         if #L.changes > 0 then
             imgui.Spacing(); UI.bold('Последние изменения', C.accent)

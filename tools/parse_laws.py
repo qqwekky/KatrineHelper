@@ -46,11 +46,7 @@ def fetch(url: str) -> str:
     raise RuntimeError(f"не удалось скачать {url}: {last}")
 
 
-def first_post_text(html: str) -> str:
-    soup = BeautifulSoup(html, "html.parser")
-    body = soup.select_one("article.message--post .message-body .bbWrapper") or soup.select_one(".bbWrapper")
-    if body is None:
-        raise RuntimeError("не найден текст первого поста")
+def body_text(body) -> str:
     for br in body.find_all("br"):
         br.replace_with("\n")
     for tag in body.find_all(["div", "p", "li", "h1", "h2", "h3", "h4", "h5", "tr"]):
@@ -58,8 +54,41 @@ def first_post_text(html: str) -> str:
         tag.insert_after("\n")
     text = body.get_text()
     text = text.replace("\xa0", " ")
+    text = re.sub(r"[​‌‍⁠﻿]", "", text)
     lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.split("\n")]
-    return "\n".join(ln for ln in lines if ln)
+    return "\n".join(ln for ln in lines if ln and not ln.startswith("Спойлер"))
+
+
+def thread_text(url: str, max_pages: int = 10) -> str:
+    """Собирает текст всех постов автора темы (законы часто разбиты на несколько постов)."""
+    author = None
+    parts = []
+    base = url.rstrip("/")
+    for page in range(1, max_pages + 1):
+        html = fetch(base + "/" if page == 1 else f"{base}/page-{page}")
+        soup = BeautifulSoup(html, "html.parser")
+        posts = soup.select("article.message--post")
+        if not posts:
+            body = soup.select_one(".bbWrapper")
+            if body is None:
+                raise RuntimeError("не найден текст поста")
+            return body_text(body)
+        for post in posts:
+            who = post.get("data-author")
+            if author is None:
+                author = who
+            if who != author:
+                continue
+            body = post.select_one(".message-body .bbWrapper")
+            if body is not None:
+                parts.append(body_text(body))
+        nxt = soup.select_one("a.pageNav-jump--next")
+        if nxt is None:
+            break
+        time.sleep(1)
+    if not parts:
+        raise RuntimeError("не найден текст постов автора")
+    return "\n".join(parts)
 
 
 def parse_wanted(text: str):
@@ -149,7 +178,7 @@ def main():
     docs, changes, errors = [], [], []
     for src in sources["docs"]:
         try:
-            text = first_post_text(fetch(src["url"]))
+            text = thread_text(src["url"])
         except Exception as e:  # noqa: BLE001
             errors.append(f"{src['id']}: {e}")
             if src["id"] in old:

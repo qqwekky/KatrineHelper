@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта, в интерфейсе и в запросах к ИИ используется UTF-8.
 
-local VERSION = '0.2.5'
+local VERSION = '0.2.6'
 
 script_name('MVD Helper')
 script_author('qqwekky')
@@ -4039,6 +4039,19 @@ function PG.laws()
     end
     local list = UI.lawCache.list
     imgui.BeginChild('##lw_list', imgui.ImVec2(S(360), 0), true)
+    if doc or q ~= '' or UI.lawFav then
+        -- путь назад к списку документов
+        if UI.btn('‹ Все документы##lw_back', true, 0, 0, nil, 'Сбросить поиск и фильтр, вернуться к списку документов') then
+            UI.lawDoc, UI.lawMode, UI.lawFav, UI.lawSel = 0, 1, false, nil
+            UI.setBuf(UI.buf.lawq, '')
+            UI.lawCache.key = nil
+        end
+        imgui.SameLine()
+        local d = UI.lawDoc > 0 and L.docs[UI.lawDoc]
+        imgui.AlignTextToFramePadding()
+        UI.muted((d and (d.title or d.id) or 'Все документы') .. '  ·  найдено: ' .. #list)
+        imgui.Separator()
+    end
     if q == '' and not UI.lawFav and not doc then
         UI.bold('Документы в базе', C.accent)
         for i, d in ipairs(L.docs) do

@@ -26,8 +26,8 @@ HEADERS = {
 }
 
 RE_CHAPTER = re.compile(r"^(Глава|Раздел|Часть)\s+([\dIVXLC]+)\.?\s*(.*)$", re.I)
-RE_ARTICLE = re.compile(r"^(?:Статья\s+)?\[?(\d{1,3}(?:\.\d{1,3}){0,3})\]?\.?\s*[).:-]?\s+(.+)$", re.I)
-RE_ARTICLE_ONLY = re.compile(r"^(?:Статья\s+)?\[?(\d{1,3}(?:\.\d{1,3}){0,3})\]?\.?$", re.I)
+RE_ARTICLE = re.compile(r"^(?:Статья\s+)?(\d{1,3}(?:\.\d{1,3}){0,3})\.?\s*[).:-]?\s+(.+)$", re.I)
+RE_ARTICLE_ONLY = re.compile(r"^(?:Статья\s+)?(\d{1,3}(?:\.\d{1,3}){0,3})\.?$", re.I)
 RE_WANTED = re.compile(r"(\d)\s*(?:-?я|-?ой|-?ая)?\s*(?:степен\w*|уровен\w*)\s+розыск", re.I)
 RE_FINE = re.compile(r"(\d[\d .]{2,})\s*\$")
 MAX_TEXT = 1500
@@ -184,10 +184,10 @@ def main():
             if src["id"] in old:
                 docs.append(old[src["id"]])  # оставляем старую версию
             continue
-        h = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
         arts = parse_articles(text)
         if len(arts) < 3:
             arts = chunk_fallback(text)
+        h = hashlib.sha1(json.dumps(arts, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
         doc = {"id": src["id"], "title": src["title"], "url": src["url"], "hash": h, "articles": arts}
         prev = old.get(src["id"])
         if prev is None:

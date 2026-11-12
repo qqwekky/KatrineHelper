@@ -26,8 +26,8 @@ HEADERS = {
 }
 
 RE_CHAPTER = re.compile(r"^(Глава|Раздел|Часть)\s+([\dIVXLC]+)\.?\s*(.*)$", re.I)
-RE_ARTICLE = re.compile(r"^(?:Статья\s+)?(\d{1,3}(?:\.\d{1,3}){0,3})\.?\s*[).:-]?\s+(.+)$", re.I)
-RE_ARTICLE_ONLY = re.compile(r"^(?:Статья\s+)?(\d{1,3}(?:\.\d{1,3}){0,3})\.?$", re.I)
+RE_ARTICLE = re.compile(r"^(?:Статья\s+)?\[?(\d{1,3}(?:\.\d{1,3}){0,3})\]?\.?\s*[).:-]?\s+(.+)$", re.I)
+RE_ARTICLE_ONLY = re.compile(r"^(?:Статья\s+)?\[?(\d{1,3}(?:\.\d{1,3}){0,3})\]?\.?$", re.I)
 RE_WANTED = re.compile(r"(\d)\s*(?:-?я|-?ой|-?ая)?\s*(?:степен\w*|уровен\w*)\s+розыск", re.I)
 RE_FINE = re.compile(r"(\d[\d .]{2,})\s*\$")
 MAX_TEXT = 1500

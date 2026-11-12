@@ -1,7 +1,7 @@
 script_name('MVD Helper')
 script_author('qqwekky')
 script_description('Хелпер для МВД Advance RP Blue с ИИ-напарником')
-script_version('0.1.0')
+script_version('0.1.1')
 script_properties('work-in-pause')
 
 -- Файл в кодировке UTF-8. В чат всё уходит через u8:decode (CP1251).
@@ -17,10 +17,157 @@ local vk = require 'vkeys'
 local dlstatus = require('moonloader').download_status
 
 local json_ok, cjson = pcall(require, 'cjson')
-local dkjson = require 'dkjson'
+-- Встроенный JSON (чтобы скрипт не зависел от dkjson)
+local dkjson = (function()
+    local escmap = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
+    local unesc = { b = '\b', f = '\f', n = '\n', r = '\r', t = '\t' }
+
+    local function escstr(s)
+        local r = s:gsub('[%c"\\]', function(c) return escmap[c] or string.format('\\u%04x', c:byte()) end)
+        return '"' .. r .. '"'
+    end
+
+    local function isArray(t)
+        local n = 0
+        for k in pairs(t) do
+            if type(k) ~= 'number' then return false end
+            n = n + 1
+        end
+        return n == #t
+    end
+
+    local function enc(v, indent, level)
+        local tv = type(v)
+        if tv == 'string' then return escstr(v) end
+        if tv == 'number' then
+            if v ~= v or v == math.huge or v == -math.huge then return 'null' end
+            return string.format('%.14g', v)
+        end
+        if tv == 'boolean' then return tostring(v) end
+        if tv ~= 'table' then return 'null' end
+        local nl, pad, pad0, colon = '', '', '', ':'
+        if indent then
+            nl = '\n'; pad = string.rep('  ', level + 1); pad0 = string.rep('  ', level); colon = ': '
+        end
+        local parts = {}
+        if isArray(v) then
+            if #v == 0 then return '[]' end
+            for i = 1, #v do parts[i] = pad .. enc(v[i], indent, level + 1) end
+            return '[' .. nl .. table.concat(parts, ',' .. nl) .. nl .. pad0 .. ']'
+        end
+        local keys = {}
+        for k in pairs(v) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        for i, k in ipairs(keys) do
+            parts[i] = pad .. escstr(tostring(k)) .. colon .. enc(v[k], indent, level + 1)
+        end
+        return '{' .. nl .. table.concat(parts, ',' .. nl) .. nl .. pad0 .. '}'
+    end
+
+    local function utf8char(cp)
+        local char, floor = string.char, math.floor
+        if cp < 0x80 then return char(cp) end
+        if cp < 0x800 then return char(0xC0 + floor(cp / 0x40), 0x80 + cp % 0x40) end
+        if cp < 0x10000 then return char(0xE0 + floor(cp / 0x1000), 0x80 + floor(cp / 0x40) % 0x40, 0x80 + cp % 0x40) end
+        return char(0xF0 + floor(cp / 0x40000), 0x80 + floor(cp / 0x1000) % 0x40, 0x80 + floor(cp / 0x40) % 0x40, 0x80 + cp % 0x40)
+    end
+
+    local function decodeRaw(str)
+        local pos = 1
+        local parseValue
+
+        local function ws()
+            pos = str:find('%S', pos) or (#str + 1)
+        end
+
+        local function parseString()
+            pos = pos + 1
+            local parts, n = {}, 0
+            while true do
+                local i = str:find('["\\]', pos)
+                if not i then error('unterminated string') end
+                n = n + 1; parts[n] = str:sub(pos, i - 1)
+                if str:byte(i) == 34 then pos = i + 1 break end
+                local c = str:sub(i + 1, i + 1)
+                if c == 'u' then
+                    local cp = tonumber(str:sub(i + 2, i + 5), 16) or 63
+                    pos = i + 6
+                    if cp >= 0xD800 and cp <= 0xDBFF and str:sub(pos, pos + 1) == '\\u' then
+                        local lo = tonumber(str:sub(pos + 2, pos + 5), 16)
+                        if lo and lo >= 0xDC00 and lo <= 0xDFFF then
+                            cp = 0x10000 + (cp - 0xD800) * 0x400 + (lo - 0xDC00)
+                            pos = pos + 6
+                        end
+                    end
+                    n = n + 1; parts[n] = utf8char(cp)
+                else
+                    n = n + 1; parts[n] = unesc[c] or c
+                    pos = i + 2
+                end
+            end
+            return table.concat(parts)
+        end
+
+        parseValue = function()
+            ws()
+            local c = str:byte(pos)
+            if c == 123 then -- {
+                local t = {}
+                pos = pos + 1; ws()
+                if str:byte(pos) == 125 then pos = pos + 1 return t end
+                while true do
+                    ws()
+                    if str:byte(pos) ~= 34 then error('key expected at ' .. pos) end
+                    local k = parseString()
+                    ws()
+                    if str:byte(pos) ~= 58 then error('colon expected at ' .. pos) end
+                    pos = pos + 1
+                    t[k] = parseValue()
+                    ws()
+                    local d = str:byte(pos); pos = pos + 1
+                    if d == 125 then return t end
+                    if d ~= 44 then error('comma expected at ' .. pos) end
+                end
+            elseif c == 91 then -- [
+                local t, n = {}, 0
+                pos = pos + 1; ws()
+                if str:byte(pos) == 93 then pos = pos + 1 return t end
+                while true do
+                    n = n + 1; t[n] = parseValue()
+                    ws()
+                    local d = str:byte(pos); pos = pos + 1
+                    if d == 93 then return t end
+                    if d ~= 44 then error('comma expected at ' .. pos) end
+                end
+            elseif c == 34 then
+                return parseString()
+            elseif str:sub(pos, pos + 3) == 'true' then pos = pos + 4 return true
+            elseif str:sub(pos, pos + 4) == 'false' then pos = pos + 5 return false
+            elseif str:sub(pos, pos + 3) == 'null' then pos = pos + 4 return nil
+            else
+                local s, e = str:find('^-?%d+%.?%d*[eE]?[+-]?%d*', pos)
+                if not s then error('unexpected symbol at ' .. pos) end
+                pos = e + 1
+                return tonumber(str:sub(s, e))
+            end
+        end
+
+        return parseValue()
+    end
+
+    return {
+        encode = function(t, opt) return enc(t, opt and opt.indent, 0) end,
+        decode = function(s)
+            if type(s) ~= 'string' then return nil end
+            local ok, r = pcall(decodeRaw, s)
+            if ok then return r end
+            return nil
+        end,
+    }
+end)()
 local effil_ok, effil = pcall(require, 'effil')
 
-local VERSION = '0.1.0'
+local VERSION = '0.1.1'
 local clock = localClock or os.clock
 local REPO_RAW = 'https://raw.githubusercontent.com/qqwekky/MVDHelper/main/'
 local DIR = getWorkingDirectory() .. '/MVDHelper'
@@ -427,31 +574,170 @@ local function checkUpdate()
 end
 
 -------------------------------------------------------------------------------
--- HTTP в отдельном потоке (effil)
+-- HTTP без подвисаний игры: effil (если есть) или неблокирующие сокеты
 -------------------------------------------------------------------------------
-local function asyncHttp(method, url, args, resolve, reject)
-    if not effil_ok then return reject('нет библиотеки effil') end
-    local thread = effil.thread(function(m, u, a)
-        local requests = require 'requests'
-        local ok, resp = pcall(requests.request, m, u, a)
-        if ok then
-            return true, { status_code = resp.status_code, text = resp.text }
-        end
-        return false, tostring(resp)
-    end)(method, url, args)
-    lua_thread.create(function()
+local function log(text)
+    print(u8:decode('[MVD Helper] ' .. tostring(text)))
+end
+
+local function dechunk(body)
+    local out, pos = {}, 1
+    while true do
+        local s, e, hex = body:find('^(%x+)[^\r\n]*\r\n', pos)
+        if not s then break end
+        local size = tonumber(hex, 16)
+        if not size or size == 0 then break end
+        out[#out + 1] = body:sub(e + 1, e + size)
+        pos = e + size + 3
+    end
+    return table.concat(out)
+end
+
+local function socketHttp(method, url, args)
+    local socket = require 'socket'
+    local ssl = require 'ssl'
+    local host, path = url:match('^https://([^/]+)(.*)$')
+    if not host then error('нужен https адрес') end
+    if path == '' then path = '/' end
+    local port = 443
+    local h, p = host:match('^(.+):(%d+)$')
+    if h then host, port = h, tonumber(p) end
+    local deadline = clock() + (args.timeout or 25)
+    local function check()
+        if clock() > deadline then error('таймаут') end
+        wait(0)
+    end
+
+    local ip = socket.dns.toip(host)
+    if not ip then error('не найден адрес ' .. host) end
+    local tcp = socket.tcp()
+    local conn
+    local ok, err = pcall(function()
+        tcp:settimeout(0)
+        tcp:connect(ip, port)
         while true do
-            local status, err = thread:status()
-            if err then return reject(err) end
-            if status == 'completed' then
-                local ok, resp = thread:get()
-                if ok then return resolve(resp) end
-                return reject(resp)
-            elseif status == 'canceled' then
-                return reject('canceled')
-            end
-            wait(0)
+            local _, w = socket.select(nil, { tcp }, 0)
+            if w and #w > 0 then break end
+            check()
         end
+
+        local ctx, cerr
+        for _, proto in ipairs({ 'any', 'tlsv1_2', 'sslv23', 'tlsv1' }) do
+            local okc, c = pcall(ssl.newcontext, { mode = 'client', protocol = proto, verify = 'none', options = 'all' })
+            if okc and c then ctx = c break end
+            cerr = c
+        end
+        if not ctx then error('ssl: ' .. tostring(cerr)) end
+        local werr
+        conn, werr = ssl.wrap(tcp, ctx)
+        if not conn then error('ssl.wrap: ' .. tostring(werr)) end
+        if conn.sni then conn:sni(host) end
+        conn:settimeout(0)
+        while true do
+            local hs, herr = conn:dohandshake()
+            if hs then break end
+            if herr ~= 'wantread' and herr ~= 'wantwrite' and herr ~= 'timeout' then error('handshake: ' .. tostring(herr)) end
+            check()
+        end
+
+        local body = args.data or ''
+        local lines = {
+            method .. ' ' .. path .. ' HTTP/1.1',
+            'Host: ' .. host,
+            'User-Agent: MVDHelper/' .. VERSION,
+            'Accept: */*',
+            'Accept-Encoding: identity',
+            'Connection: close',
+            'Content-Length: ' .. #body,
+        }
+        for k, v in pairs(args.headers or {}) do lines[#lines + 1] = k .. ': ' .. v end
+        local req = table.concat(lines, '\r\n') .. '\r\n\r\n' .. body
+        local i = 1
+        while i <= #req do
+            local sent, serr, last = conn:send(req, i)
+            if sent then
+                i = sent + 1
+            elseif serr == 'wantwrite' or serr == 'wantread' or serr == 'timeout' then
+                if last and last >= i then i = last + 1 end
+                check()
+            else
+                error('send: ' .. tostring(serr))
+            end
+        end
+
+        local chunks = {}
+        local total, headEnd, need, chunked = '', nil, nil, false
+        while true do
+            local data, rerr, partial = conn:receive(8192)
+            local got = data or partial
+            if got and #got > 0 then
+                chunks[#chunks + 1] = got
+                total = table.concat(chunks)
+                chunks = { total }
+                if not headEnd then
+                    local _, e = total:find('\r\n\r\n', 1, true)
+                    if e then
+                        headEnd = e
+                        local head = total:sub(1, e):lower()
+                        need = tonumber(head:match('content%-length:%s*(%d+)'))
+                        chunked = head:find('transfer%-encoding:%s*chunked') ~= nil
+                    end
+                end
+                if headEnd then
+                    if need and #total - headEnd >= need then break end
+                    if chunked and total:sub(-5) == '0\r\n\r\n' then break end
+                end
+            end
+            if not data then
+                if rerr == 'closed' then break end
+                if rerr ~= 'wantread' and rerr ~= 'wantwrite' and rerr ~= 'timeout' then
+                    if headEnd then break end
+                    error('receive: ' .. tostring(rerr))
+                end
+                check()
+            end
+        end
+        if not headEnd then error('пустой ответ') end
+        local status = tonumber(total:match('^HTTP/%d%.%d%s+(%d+)')) or 0
+        local text = total:sub(headEnd + 1)
+        if chunked then text = dechunk(text) end
+        return { status_code = status, text = text }
+    end)
+    pcall(function() if conn then conn:close() else tcp:close() end end)
+    if not ok then error(err, 0) end
+    return err
+end
+
+local function asyncHttp(method, url, args, resolve, reject)
+    if effil_ok then
+        local thread = effil.thread(function(m, u, a)
+            local requests = require 'requests'
+            local ok, resp = pcall(requests.request, m, u, a)
+            if ok then
+                return true, { status_code = resp.status_code, text = resp.text }
+            end
+            return false, tostring(resp)
+        end)(method, url, args)
+        lua_thread.create(function()
+            while true do
+                local status, err = thread:status()
+                if err then return reject(tostring(err)) end
+                if status == 'completed' then
+                    local ok, resp = thread:get()
+                    if ok then return resolve(resp) end
+                    return reject(tostring(resp))
+                elseif status == 'canceled' then
+                    return reject('canceled')
+                end
+                wait(0)
+            end
+        end)
+        return
+    end
+    lua_thread.create(function()
+        local ok, resp = pcall(socketHttp, method, url, args)
+        if ok then return resolve(resp) end
+        reject(tostring(resp))
     end)
 end
 
@@ -586,16 +872,23 @@ local function callProvider(i, prompt, done)
     end
     ai.status = 'спрашиваю ' .. p.name .. '...'
     asyncHttp('POST', p.url, { headers = headers, data = body, timeout = 25 }, function(resp)
-        if resp.status_code ~= 200 then return callProvider(i + 1, prompt, done) end
+        if resp.status_code ~= 200 then
+            log('ИИ ' .. p.name .. ': код ' .. tostring(resp.status_code) .. ' ' .. tostring(resp.text or ''):sub(1, 200))
+            return callProvider(i + 1, prompt, done)
+        end
         local text = resp.text or ''
         if p.type ~= 'pollinations' then
             local j = jdecode(text)
             text = j and j.choices and j.choices[1] and j.choices[1].message and j.choices[1].message.content
-            if not text then return callProvider(i + 1, prompt, done) end
+            if not text then
+                log('ИИ ' .. p.name .. ': непонятный ответ')
+                return callProvider(i + 1, prompt, done)
+            end
         end
         ai.provider = p.name
         done(text)
-    end, function()
+    end, function(err)
+        log('ИИ ' .. p.name .. ': ' .. tostring(err))
         callProvider(i + 1, prompt, done)
     end)
 end
@@ -1138,7 +1431,6 @@ function main()
     registerCommands()
 
     msg('Загружен v' .. VERSION .. '. Меню: /fh, окно напарника: ' .. cfg.ai.key .. ' или /ai.')
-    if not effil_ok then msg('{FF8844}Нет библиотеки effil: ИИ работать не будет. Переустановите архив.') end
 
     checkLaws()
     checkProviders()

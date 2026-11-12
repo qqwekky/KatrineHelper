@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта, в интерфейсе и в запросах к ИИ используется UTF-8.
 
-local VERSION = '0.2.7'
+local VERSION = '0.2.8'
 
 script_name('MVD Helper')
 script_author('qqwekky')
@@ -687,7 +687,7 @@ D.REFERENCE = {
 -- Команды, которые есть на сервере или у других хелперов: свои бинды с такими именами не создаём
 D.RESERVED = {}
 for _, c in ipairs({ 'r', 'd', 'm', 's', 'b', 'w', 'me', 'do', 'try', 'todo', 'n', 'f', 'o', 'pm', 'sms', 'call', 'lock', 'engine', 'menu', 'mn', 'help',
-    'report', 'time', 'fh', 'ai', 'ask', 'sus', 'laws', 'mm', 'qsm', 'ud', 'mark', 'rb', 'rpx', 'aiclear', 'mdtreport', 'stoprp', 'members', 'find', 'pay', 'id' }) do
+    'report', 'time', 'fh', 'qs', 'cursor', 'ai', 'ask', 'sus', 'laws', 'mm', 'qsm', 'ud', 'mark', 'rb', 'rpx', 'aiclear', 'mdtreport', 'stoprp', 'members', 'find', 'pay', 'id' }) do
     D.RESERVED[c] = true
 end
 for k in pairs(D.RP) do D.RESERVED[k] = true; D.RESERVED[k .. 'sp'] = true end
@@ -698,7 +698,7 @@ for k in pairs(D.RP) do D.RESERVED[k] = true; D.RESERVED[k .. 'sp'] = true end
 local CFG_VERSION = 3
 local DEFAULT_CFG = {
     cfg_version = CFG_VERSION,
-    profile = { name = '', surname = '', rank = 'Сержант', dept = 'ЛСПД', female = false },
+    profile = { name = '', surname = '', rank = 'Сержант', dept = 'ЛСПД', female = false, unit = '' },
     delay = 1300,
     rp = {},
     megaphone = {
@@ -726,6 +726,9 @@ local DEFAULT_CFG = {
         custom_url = '', custom_key = '', custom_model = '',
     },
     radial = { enabled = true },
+    cursor = { key = 'F4' },          -- показать или скрыть курсор
+    widget = { enabled = true, collapsed = false },
+    sit = { custom1050 = '' },        -- код 10-50 в Уставе МВД не найден: фраза задаётся игроком
     autologin = { enabled = false, password = '' },
     update = { auto = true, failed_sha = '', failed_version = '', retry_after = 0, last = '', last_result = '' },
     ui = {
@@ -733,6 +736,7 @@ local DEFAULT_CFG = {
         main = { x = -1, y = -1, w = 980, h = 640 },
         partner = { x = 20, y = 300, w = 380, h = 440 },
         sus = { x = -1, y = -1, w = 860, h = 520 },
+        widget = { x = 20, y = 200, w = 330, h = 430 },
     },
 }
 
@@ -849,6 +853,7 @@ function RP.fill(line, ctx)
     local rep = {
         name = RP.fullName(), firstname = p.name or '', surname = p.surname or '', rank = p.rank or '', dept = p.dept or '',
         deptfull = D.DEPT_FULL[p.dept] or p.dept or '',
+        unit = (p.unit and U.trim(p.unit) ~= '') and U.trim(p.unit) or ((p.rank or '') .. ' ' .. RP.fullName()),
         target = ctx.target or 'гражданина', id = ctx.id and tostring(ctx.id) or '',
         arg = ctx.arg or '', reason = ctx.reason or '', sum = ctx.sum or '', level = ctx.level or '', article = ctx.article or '',
         zone = ctx.zone or '',
@@ -3533,7 +3538,7 @@ local buf = {
     report = new.char[8192](), qSum = new.char[16](), qReason = new.char[128](),
     rp = {}, rpOn = {}, binds = {}, runArgs = {},
     delay = new.int(1300), logSize = new.int(150), windowMin = new.int(8), scale = new.float(1.0),
-    female = new.bool(false), hideNicks = new.bool(false), aiOn = new.bool(true), alOn = new.bool(false), filterOn = new.bool(false), upd = new.bool(true), radialOn = new.bool(true),
+    female = new.bool(false), widgetOn = new.bool(true), unit = new.char[32](), c1050 = new.char[200](), hideNicks = new.bool(false), aiOn = new.bool(true), alOn = new.bool(false), filterOn = new.bool(false), upd = new.bool(true), radialOn = new.bool(true),
 }
 for i = 1, 4 do buf.runArgs[i] = new.char[160]() end
 UI.buf = buf
@@ -3578,7 +3583,8 @@ UI.KEYS = KEYS
 function UI.sync()
     local p = cfg.profile
     setBuf(buf.name, p.name); setBuf(buf.surname, p.surname); setBuf(buf.rank, p.rank)
-    UI.edit = { dept = p.dept, key = cfg.ai.key, network = cfg.ai.network, disabled = U.copy(cfg.ai.disabled) }
+    setBuf(buf.unit, p.unit or ''); setBuf(buf.c1050, cfg.sit.custom1050 or ''); buf.widgetOn[0] = cfg.widget.enabled == true
+    UI.edit = { cursorKey = cfg.cursor.key, dept = p.dept, key = cfg.ai.key, network = cfg.ai.network, disabled = U.copy(cfg.ai.disabled) }
     buf.female[0] = p.female == true
     buf.delay[0] = cfg.delay; buf.logSize[0] = cfg.ai.log_size; buf.windowMin[0] = cfg.ai.window_min; buf.scale[0] = cfg.ui.scale
     buf.hideNicks[0] = cfg.ai.hide_nicks == true
@@ -3627,7 +3633,13 @@ function UI.apply()
         UI.toastShow('Не сохранено: ' .. problems[1], 'bad')
         return false
     end
+    if UI.edit.cursorKey == UI.edit.key then
+        UI.toastShow('Не сохранено: клавиша курсора совпадает с клавишей окна напарника.', 'bad')
+        return false
+    end
     local p = cfg.profile
+    p.unit = U.trim(getBuf(buf.unit)); cfg.sit.custom1050 = U.trim(getBuf(buf.c1050))
+    cfg.widget.enabled = buf.widgetOn[0]; cfg.cursor.key = UI.edit.cursorKey
     p.name = U.trim(getBuf(buf.name)); p.surname = U.trim(getBuf(buf.surname)); p.rank = U.trim(getBuf(buf.rank))
     p.dept = UI.edit.dept; p.female = buf.female[0]
     cfg.delay = buf.delay[0]
@@ -3840,6 +3852,7 @@ function PG.home()
         { '/ud [id]', 'показать удостоверение' }, { '/mm [номер]', 'фраза в мегафон' }, { '/qsm', 'тревога в рацию с районом' },
         { '/mark [id], /rb', 'метка на игрока' }, { '/rpx [команда] [аргументы]', 'отыгровка для непроверенных команд (вставка в чат)' },
         { '/stoprp', 'прервать отыгровку' }, { '/aiclear', 'очистить RP-журнал' },
+        { '/qs', 'виджет «Быстрые ситуации»' }, { '/cursor или ' .. cfg.cursor.key, 'показать или скрыть курсор' },
         { 'Колёсико мыши', 'радиальное меню' }, { 'ПКМ + колёсико', 'действия с игроком в прицеле' },
     }
     for _, r2 in ipairs(rows) do UI.kv(r2[1], r2[2], 240) end
@@ -4263,7 +4276,7 @@ end
 
 -- Профиль -------------------------------------------------------------------------
 function PG.profile()
-    UI.cardBegin('##pf', S(380))
+    UI.cardBegin('##pf', S(460))
     UI.dfield('Имя персонажа', 'pf_name', UI.buf.name, 'Иван')
     UI.dfield('Фамилия персонажа', 'pf_sur', UI.buf.surname, 'Петров')
     UI.muted('Если оставить пустыми, в отыгровках будет ник без подчёркивания.')
@@ -4275,6 +4288,8 @@ function PG.profile()
         for i, r in ipairs(list) do if imgui.Selectable(r .. '##rk' .. i, false) then UI.setBuf(UI.buf.rank, r); UI.dirty = true end end
         imgui.EndCombo()
     end
+    UI.dfield('Позывной для рации (маркировка патруля, Устав МВД 18.4)', 'pf_unit', UI.buf.unit, 'например L-12 или ADAM-3')
+    UI.muted('Если пусто, в рации будет звание и имя.')
     UI.muted('Подразделение')
     for i, d in ipairs(D.DEPTS) do
         if i > 1 then imgui.SameLine() end
@@ -4364,10 +4379,24 @@ function PG.settings()
     UI.muted('Показать или скрыть окно напарника')
     imgui.SetNextItemWidth(S(160))
     if imgui.BeginCombo('##st_key', UI.edit.key) then
-        for i, k in ipairs(UI.KEYS) do if imgui.Selectable(k .. '##k' .. i, UI.edit.key == k) then UI.edit.key = k; UI.dirty = true end end
+        for i, k in ipairs(UI.KEYS) do if k ~= UI.edit.cursorKey and imgui.Selectable(k .. '##k' .. i, UI.edit.key == k) then UI.edit.key = k; UI.dirty = true end end
         imgui.EndCombo()
     end
     UI.check('Радиальное меню на колёсике мыши##st_rad', UI.buf.radialOn)
+    UI.muted('Показать или скрыть курсор (также кнопка в шапке и в виджете, команда /cursor)')
+    imgui.SetNextItemWidth(S(160))
+    if imgui.BeginCombo('##st_ckey', UI.edit.cursorKey) then
+        for i, k in ipairs(UI.KEYS) do
+            if k ~= UI.edit.key and imgui.Selectable(k .. '##ck' .. i, UI.edit.cursorKey == k) then UI.edit.cursorKey = k; UI.dirty = true end
+        end
+        imgui.EndCombo()
+    end
+    if UI.edit.cursorKey == UI.edit.key then UI.colored(C.bad, 'Клавиша курсора совпадает с клавишей напарника.') end
+
+    UI.section('Быстрые ситуации')
+    UI.check('Показывать виджет на экране (/qs)##st_wid', UI.buf.widgetOn)
+    UI.muted('Коды взяты из Устава МВД, глава XVIII. Кода 10-50 там нет: если он используется, впишите фразу для рации.')
+    UI.dfield(nil, 'st_1050', UI.buf.c1050, '/r {unit}: 10-50, ... Район: {zone}.')
     UI.muted('Хелпер не выполняет задержание, розыск и арест по клавишам без вашего подтверждения.')
 
     UI.section('Автообновление')
@@ -4419,6 +4448,43 @@ for _, n in ipairs(NAV) do PG.ORDER[n.id] = PG[n.id] end
 -------------------------------------------------------------------------------
 UI.pageError = nil
 
+-------------------------------------------------------------------------------
+-- Единый менеджер курсора (CUR). Все окна спрашивают его, нужен ли курсор.
+-------------------------------------------------------------------------------
+local CUR = { manual = false }
+UI.CUR = CUR
+function CUR.windows() return W.menu[0] or W.sus[0] or W.quick[0] or W.run[0] end
+function CUR.wanted() return CUR.manual or CUR.windows() or (UI.RAD ~= nil and UI.RAD.open) end
+function CUR.set(v)
+    v = v and true or false
+    if CUR.manual == v then return end
+    CUR.manual = v
+end
+function CUR.toggle() CUR.set(not CUR.manual) end
+
+-- Курсор по кнопке или клавише. Пустой кадр: ничего не рисует, только показывает курсор.
+imgui.OnFrame(function() return cfg ~= nil and CUR.manual and not isPauseMenuActive() end, function(player)
+    player.HideCursor = false
+end)
+
+-- Кнопка с иконкой мыши
+function UI.cursorButton(id, w)
+    local dl = imgui.GetWindowDrawList()
+    local p = imgui.GetCursorScreenPos()
+    local h = imgui.GetFrameHeight()
+    local iw, ih = S(10), S(15)
+    local x, y = p.x + S(2), p.y + (h - ih) / 2
+    local col = U32(CUR.manual and C.accent or C.muted, 1)
+    dl:AddRect(imgui.ImVec2(x, y), imgui.ImVec2(x + iw, y + ih), col, S(5), 15, 1.5)
+    dl:AddLine(imgui.ImVec2(x + iw / 2, y + S(2)), imgui.ImVec2(x + iw / 2, y + S(6)), col, 1.5)
+    imgui.Dummy(imgui.ImVec2(iw + S(6), h))
+    imgui.SameLine(0, S(2))
+    local label = (CUR.manual and 'Скрыть курсор' or 'Показать курсор') .. '##cur' .. id
+    if UI.btn(label, true, w or 0, 0, CUR.manual and 'primary' or nil, 'Клавиша ' .. tostring(cfg.cursor.key) .. '. Курсор остаётся после закрытия окон, пока его не скроете.') then
+        CUR.toggle()
+    end
+end
+
 local function drawHeader()
     imgui.PushStyleColor(imgui.Col.ChildBg, C.panel)
     imgui.BeginChild('##top', imgui.ImVec2(0, S(64)), true, imgui.WindowFlags.NoScrollbar)
@@ -4442,8 +4508,10 @@ local function drawHeader()
     UI.muted(D.DEPT_FULL[pr.dept] or pr.dept)
     imgui.EndGroup()
     local avail = imgui.GetWindowWidth()
-    imgui.SameLine(math.max(S(560), avail - S(330)))
+    imgui.SameLine(math.max(S(560), avail - S(480)))
     imgui.BeginGroup()
+    UI.cursorButton('hdr')
+    imgui.SameLine()
     local st, sc = UI.aiState()
     UI.pill(st, sc)
     imgui.SameLine()
@@ -4499,7 +4567,7 @@ end)
 -- Окно напарника поверх игры (без курсора)
 -------------------------------------------------------------------------------
 imgui.OnFrame(function() return cfg ~= nil and W.partner[0] and cfg.ai.enabled and not isPauseMenuActive() end, function(player)
-    player.HideCursor = not (W.menu[0] or W.sus[0] or W.quick[0] or W.run[0])
+    player.HideCursor = not CUR.wanted()
     UI.placeWindow('partner', 380, 440)
     imgui.SetNextWindowBgAlpha(0.92)
     imgui.Begin('AI-напарник##partner', nil, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoFocusOnAppearing)
@@ -4806,7 +4874,8 @@ function UI.radialCats()
 end
 
 function UI.radialOpen()
-    RAD.open, RAD.level, RAD.cat, RAD.origin, RAD.hover, RAD.clickMode = true, 'cats', nil, nil, 0, false
+    RAD.open, RAD.level, RAD.cat, RAD.hover, RAD.clickMode = true, 'cats', nil, 0, false
+    RAD.center, RAD.start, RAD.armed, RAD.pressed, RAD.outside = nil, nil, false, false, false
     RAD.cats = UI.radialCats()
 end
 function UI.radialClose() RAD.open = false end
@@ -4821,14 +4890,15 @@ function UI.radialSelect()
     local items = UI.radialItems()
     if RAD.outside then UI.radialClose() return end
     if RAD.hover == 0 then
-        if RAD.level == 'items' then RAD.level = 'cats'; RAD.origin = nil; RAD.clickMode = true else UI.radialClose() end
+        if RAD.level == 'items' then RAD.level = 'cats'; RAD.clickMode = true else UI.radialClose() end
         return
     end
     local it = items[RAD.hover]
     if not it then UI.radialClose() return end
     if RAD.level == 'cats' then
         if it.action then UI.radialClose(); it.action() return end
-        RAD.level, RAD.cat, RAD.origin, RAD.clickMode = 'items', it, nil, true
+        -- центр и координаты не сбрасываются: точка остаётся под реальным курсором
+        RAD.level, RAD.cat, RAD.clickMode = 'items', it, true
         return
     end
     UI.radialClose()
@@ -4836,27 +4906,48 @@ function UI.radialSelect()
     if not ok then log('радиальное меню: ' .. tostring(err)) end
 end
 
+-- Сектор под курсором. Одна система координат для всех уровней: центр круга фиксируется
+-- один раз при открытии, дальше считается от реального положения мыши.
+function UI.radialHover(m, R, r0, n)
+    RAD.hover, RAD.outside = 0, false
+    if not RAD.center or not RAD.armed then return end
+    local dx, dy = m.x - RAD.center.x, m.y - RAD.center.y
+    local d2 = dx * dx + dy * dy
+    if d2 > (R * 1.9) ^ 2 then RAD.outside = true return end
+    if d2 > (r0 * 0.75) ^ 2 then
+        local step = 2 * math.pi / n
+        local ang = math.atan2(dy, dx) + math.pi / 2 + step / 2
+        RAD.hover = math.floor((ang % (2 * math.pi)) / step) + 1
+    end
+end
+
 imgui.OnFrame(function() return cfg ~= nil and RAD.open end, function(player)
-    player.LockPlayer = true
+    -- клавиатура персонажа не блокируется; курсор виден, по нему выбирается сектор
+    player.LockPlayer = false
+    player.HideCursor = false
     local sw, sh = getScreenResolution()
-    local c = imgui.ImVec2(sw / 2, sh / 2)
-    local dl = imgui.GetForegroundDrawList()
     local R, r0 = S(200), S(70)
     local mid, thick = (R + r0) / 2, R - r0
     local items = UI.radialItems()
     local n = math.max(1, #items)
     local step = 2 * math.pi / n
     local m = imgui.GetMousePos()
-    if not RAD.origin then RAD.origin = { x = m.x, y = m.y } end
-    local dx, dy = m.x - RAD.origin.x, m.y - RAD.origin.y
-    local d2 = dx * dx + dy * dy
-    RAD.hover, RAD.outside = 0, false
-    if d2 > (R * 1.9) ^ 2 then
-        RAD.outside = true
-    elseif d2 > (r0 * 0.75) ^ 2 then
-        local ang = math.atan2(dy, dx) + math.pi / 2 + step / 2
-        RAD.hover = math.floor((ang % (2 * math.pi)) / step) + 1
+    local valid = m.x > -10000 and m.y > -10000
+    if valid and not RAD.center then
+        -- центр там, где курсор; у края экрана сдвигаем, чтобы круг поместился
+        local margin = R + S(14)
+        RAD.center = { x = math.max(margin, math.min(sw - margin, m.x)), y = math.max(margin, math.min(sh - margin, m.y)) }
+        RAD.start = { x = m.x, y = m.y }
     end
+    if not RAD.center then return end
+    -- выбор включается после первого движения: случайное отпускание без движения ничего не запускает
+    if valid and not RAD.armed and RAD.start then
+        local mx, my = m.x - RAD.start.x, m.y - RAD.start.y
+        if mx * mx + my * my > S(6) ^ 2 then RAD.armed = true end
+    end
+    if valid then UI.radialHover(m, R, r0, n) end
+    local c = imgui.ImVec2(RAD.center.x, RAD.center.y)
+    local dl = imgui.GetForegroundDrawList()
     dl:AddCircleFilled(c, R + S(8), U32(C.bg, 0.62), 64)
     for i, it in ipairs(items) do
         local a0 = -math.pi / 2 + (i - 1.5) * step + 0.03
@@ -4873,9 +4964,8 @@ imgui.OnFrame(function() return cfg ~= nil and RAD.open end, function(player)
         dl:AddText(imgui.ImVec2(c.x + math.cos(ca) * mid - ts.x / 2, c.y + math.sin(ca) * mid - ts.y / 2), hot and U32(C.text, 1) or U32(C.muted, 1), label)
     end
     dl:AddCircleFilled(c, r0 - S(6), U32(C.bg, 0.95), 48)
-    local dist = math.sqrt(d2)
-    local k = dist > mid and mid / dist or 1
-    dl:AddCircleFilled(imgui.ImVec2(c.x + dx * k, c.y + dy * k), S(5), U32(C.text, 0.9), 16)
+    -- белая точка ровно под реальным курсором
+    if valid then dl:AddCircleFilled(imgui.ImVec2(m.x, m.y), S(5), U32(C.text, 0.9), 16) end
     local centre
     if RAD.outside then centre = 'Закрыть'
     elseif RAD.hover > 0 and items[RAD.hover] then centre = items[RAD.hover].title or items[RAD.hover][1]
@@ -4883,10 +4973,226 @@ imgui.OnFrame(function() return cfg ~= nil and RAD.open end, function(player)
     local ts = imgui.CalcTextSize(centre)
     dl:AddText(imgui.ImVec2(c.x - ts.x / 2, c.y - ts.y / 2), U32(C.accent, 1), centre)
     if RAD.level == 'items' and RAD.cat then
-        local hint = RAD.cat.title .. ': щёлкните по пункту'
+        local hint = RAD.cat.title .. ': наведите и нажмите колёсико'
         local hs = imgui.CalcTextSize(hint)
         dl:AddText(imgui.ImVec2(c.x - hs.x / 2, c.y + R + S(14)), U32(C.muted, 1), hint)
     end
+end)
+
+-------------------------------------------------------------------------------
+-- Виджет «Быстрые ситуации» (SIT). Коды взяты из Устава МВД, глава XVIII (пп. 18.2 и 18.3).
+-- Фразы с [скобками] не отправляются сами: они вставляются в чат, чтобы дописать детали.
+-------------------------------------------------------------------------------
+local SIT = { sel = nil }
+UI.SIT = SIT
+
+-- Типы действий: radio (рация), rp (шаблон отыгровки), run (команда с окном ID), mega (мегафон),
+-- lines (свои строки), chat (вставить в чат), ai (AI-help), sus (умный розыск), report (рапорт)
+SIT.LIST = {
+    { id = 'patrol', title = 'Патрулирование', code = 'CODE 1-1',
+      desc = 'Выезд и работа патруля. CODE 1-1: выезд с гаража, CODE 1-3: уход с патруля.',
+      steps = { 'Сообщите о выезде', 'Периодически докладывайте статус (10-21)', 'При уходе с патруля укажите причину (CODE 1-3)' },
+      acts = {
+          { 'radio', 'Выезд на патруль', '/r {unit}: CODE 1-1, выезд на патрулирование. Район: {zone}.' },
+          { 'radio', 'Статус 10-21', '/r {unit}: 10-21, патрулирую район {zone}, всё спокойно.' },
+          { 'radio', 'Местоположение 10-20', '/r {unit}: 10-20, {zone}.' },
+          { 'radio', 'Уход с патруля', '/r {unit}: CODE 1-3, ухожу с патруля. Причина: [причина]' },
+      } },
+    { id = '1055', title = 'Остановка ТС', code = '10-55',
+      desc = '10-55: провожу остановку ТС (трафик-стоп).',
+      steps = { 'Доложите 10-55 в рацию', 'Потребуйте остановиться через мегафон', 'Представьтесь, покажите удостоверение, назовите причину', 'Проверьте документы' },
+      acts = {
+          { 'radio', 'Доклад 10-55', '/r {unit}: 10-55, провожу остановку ТС. Район: {zone}.' },
+          { 'mega', 'Мегафон: прижаться', 1 },
+          { 'rp', 'Представиться', 'greet' }, { 'rp', 'Удостоверение', 'badge' }, { 'rp', 'Документы', 'askdocs' },
+          { 'radio', 'Данные авто 10-60', '/r {unit}: 10-60, [модель], [цвет], в салоне [кол-во] чел.' },
+          { 'run', 'Штраф', 'ticket' },
+      } },
+    { id = '1066', title = 'Опасная остановка', code = '10-66',
+      desc = '10-66: трафик-стоп повышенного риска. В Mary-патруле сначала дождитесь подкрепления (Устав МВД 5.22).',
+      steps = { 'Доложите 10-66 и запросите поддержку', 'Держите дистанцию, не подходите к машине в одиночку', 'Прикажите выйти с поднятыми руками' },
+      acts = {
+          { 'radio', 'Доклад 10-66', '/r {unit}: 10-66, трафик-стоп повышенного риска. Район: {zone}. Нужна поддержка.' },
+          { 'radio', 'Силовая поддержка 10-70', '/r {unit}: 10-70, нужна силовая поддержка, [кол-во] юнитов, CODE 3. Район: {zone}.' },
+          { 'mega', 'Мегафон: выйти с руками', 3 },
+          { 'run', 'Наручники', 'cuff' }, { 'ai', 'AI-help' },
+      } },
+    { id = '1050', title = 'Код 10-50', code = '10-50', unconfirmed = true,
+      desc = 'Кода 10-50 нет в Уставе МВД (гл. XVIII). Если на сервере он используется, впишите свою фразу: /fh → Настройки → Быстрые ситуации.',
+      steps = {}, acts = { { 'custom1050', 'Своя фраза 10-50' } } },
+    { id = 'pursuit', title = 'Погоня', code = 'CODE 3',
+      desc = 'Преследование. CODE 3: экстренный выезд с сиренами.',
+      steps = { 'Доложите о погоне и направлении', 'Обновляйте местоположение (10-20)', 'При потере из виду объявите розыск' },
+      acts = {
+          { 'radio', 'Начало погони', '/r {unit}: Веду преследование, CODE 3. Район: {zone}. Направление: [куда]' },
+          { 'radio', 'Местоположение 10-20', '/r {unit}: 10-20, {zone}, продолжаю преследование.' },
+          { 'mega', 'Мегафон: остановиться', 2 },
+          { 'radio', 'Нужна помощь 10-18', '/r {unit}: 10-18, требуется поддержка в преследовании. Район: {zone}.' },
+          { 'sus', 'Умный розыск' },
+      } },
+    { id = 'backup', title = 'Подкрепление', code = '10-18',
+      desc = '10-18: нужна поддержка юнитов. CODE 2: без сирен, CODE 3: с сиренами, CODE 0: офицер в критическом положении.',
+      steps = { 'Выберите срочность', 'Назовите район' },
+      acts = {
+          { 'radio', '10-18 поддержка', '/r {unit}: 10-18, требуется поддержка. Район: {zone}.' },
+          { 'radio', 'CODE 2 (тихо)', '/r {unit}: CODE 2, нужна поддержка без сирен. Район: {zone}.' },
+          { 'radio', 'CODE 3 (срочно)', '/r {unit}: CODE 3, срочно нужна поддержка. Район: {zone}.' },
+          { 'radio', 'CODE 0 (критично)', '/r {unit}: CODE 0! Офицер в критическом положении. Район: {zone}.' },
+      } },
+    { id = 'detain', title = 'Задержание', code = '10-46',
+      desc = 'Задержание подозреваемого. 10-46: провожу обыск.',
+      steps = { 'Назовите причину задержания', 'Наденьте наручники', 'Проведите обыск', 'Посадите в служебный автомобиль' },
+      acts = {
+          { 'chat', 'Объявить задержание', 'Вы задержаны по статье [статья]. Не оказывайте сопротивления.' },
+          { 'run', 'Наручники', 'cuff' }, { 'run', 'Обыск', 'search' }, { 'run', 'В авто', 'putpl' },
+          { 'radio', 'Обыск 10-46', '/r {unit}: 10-46, провожу обыск. Район: {zone}.' },
+          { 'ai', 'AI-help' },
+      } },
+    { id = 'docs', title = 'Проверка документов', code = '10-56',
+      desc = '10-56: запрос информации по имени или номеру ТС.',
+      steps = { 'Представьтесь и покажите удостоверение', 'Назовите причину', 'Попросите документы' },
+      acts = {
+          { 'rp', 'Представиться', 'greet' }, { 'rp', 'Удостоверение', 'badge' }, { 'rp', 'Документы', 'askdocs' },
+          { 'radio', 'Запрос 10-56', '/r {unit}: 10-56, запрос информации: [имя или номер ТС]' },
+      } },
+    { id = 'vehicle', title = 'Проверка ТС', code = '10-60',
+      desc = '10-60: информация об автомобиле (модель, цвет, количество лиц).',
+      steps = { 'Осмотрите автомобиль', 'Передайте данные в рацию', 'При необходимости запросите 10-56' },
+      acts = {
+          { 'lines', 'Осмотр авто', { '/me [обошёл|обошла] автомобиль и внимательно осмотрел{a} его', '/do Видимых повреждений и запрещённых предметов в салоне не видно.' } },
+          { 'radio', 'Данные 10-60', '/r {unit}: 10-60, [модель], [цвет], в салоне [кол-во] чел.' },
+          { 'radio', 'Запрос 10-56', '/r {unit}: 10-56, проверьте номер [номер ТС]' },
+      } },
+    { id = 'block', title = 'Перекрытие дороги', code = 'CODE 9',
+      desc = 'CODE 9: необходимо выставить оцепление. CODE 6: офицерам держаться подальше от района.',
+      steps = { 'Доложите CODE 9', 'Выставьте ограждение', 'Предупредите коллег' },
+      acts = {
+          { 'radio', 'CODE 9 оцепление', '/r {unit}: CODE 9, выставляю оцепление. Район: {zone}.' },
+          { 'run', 'Ограждение', 'break' },
+          { 'radio', 'CODE 6', '/r {unit}: CODE 6, держитесь подальше от района {zone}.' },
+      } },
+    { id = 'crash', title = 'ДТП', code = '10-30',
+      desc = '10-30: дорожно-транспортное происшествие. 10-71 и CODE 8: нужна медицинская помощь.',
+      steps = { 'Доложите 10-30', 'Окажите помощь, вызовите медиков', 'Перекройте движение при необходимости' },
+      acts = {
+          { 'radio', 'ДТП 10-30', '/r {unit}: 10-30, ДТП. Район: {zone}.' },
+          { 'radio', 'Медпомощь 10-71', '/r {unit}: 10-71, нужна медицинская помощь. Район: {zone}.' },
+          { 'radio', 'CODE 8', '/r {unit}: CODE 8, требуется медицинская помощь. Район: {zone}.' },
+          { 'radio', 'CODE 9 оцепление', '/r {unit}: CODE 9, выставляю оцепление. Район: {zone}.' },
+      } },
+    { id = 'armed', title = 'Вооружённый подозреваемый', code = 'CODE 0',
+      desc = 'Угроза оружием. CODE 0: максимальный приоритет, все юниты выдвигаются. 10-70: силовая поддержка.',
+      steps = { 'Займите укрытие', 'Вызовите поддержку', 'Приказ бросить оружие', 'Розыск по статье из базы' },
+      acts = {
+          { 'radio', 'CODE 0', '/r {unit}: CODE 0! Вооружённый подозреваемый. Район: {zone}.' },
+          { 'radio', 'Силовая поддержка 10-70', '/r {unit}: 10-70, нужна силовая поддержка, [кол-во] юнитов, CODE 3. Район: {zone}.' },
+          { 'mega', 'Мегафон: работает полиция', 4 },
+          { 'sus', 'Умный розыск' }, { 'ai', 'AI-help' },
+      } },
+    { id = 'deliver', title = 'Доставление', code = 'CODE 1-4',
+      desc = 'CODE 1-4: перевозка задержанного в департамент. 10-15: подозреваемые арестованы.',
+      steps = { 'Посадите задержанного в авто', 'Доложите CODE 1-4', 'Оформите в участке и доложите 10-15' },
+      acts = {
+          { 'run', 'В авто', 'putpl' },
+          { 'radio', 'CODE 1-4', '/r {unit}: CODE 1-4, перевожу задержанного в департамент.' },
+          { 'run', 'Арест', 'arrest' },
+          { 'radio', 'Арестован 10-15', '/r {unit}: 10-15, задержан [кол-во] чел. Район: {zone}.' },
+      } },
+    { id = 'finish', title = 'Завершение операции', code = '10-99',
+      desc = '10-99: ситуация урегулирована. CODE 4: ситуация под контролем.',
+      steps = { 'Доложите 10-99', 'Составьте рапорт' },
+      acts = {
+          { 'radio', 'Урегулировано 10-99', '/r {unit}: 10-99, ситуация урегулирована. Район: {zone}.' },
+          { 'radio', 'CODE 4', '/r {unit}: CODE 4, ситуация под контролем.' },
+          { 'report', 'Рапорт' },
+      } },
+    { id = 'other', title = 'Другая ситуация', code = '10-21',
+      desc = '10-21: сообщение о статусе, местоположении и кратком описании ситуации.',
+      steps = {},
+      acts = {
+          { 'radio', 'Статус 10-21', '/r {unit}: 10-21, [кратко о ситуации]. Район: {zone}.' },
+          { 'radio', 'Принято 10-4', '/r {unit}: 10-4.' },
+          { 'radio', 'Ожидайте 10-7', '/r {unit}: 10-7, ожидайте.' },
+          { 'ai', 'AI-help' },
+      } },
+}
+
+-- Выполнить действие ситуации
+function SIT.run(a)
+    local kind = a[1]
+    local ctx = { zone = SA.zoneName() }
+    if kind == 'radio' or kind == 'custom1050' then
+        local text = kind == 'radio' and a[3] or U.trim(cfg.sit.custom1050)
+        if text == '' then msg('Фраза для 10-50 не задана: /fh → Настройки → Быстрые ситуации.') return end
+        local filled = RP.fill(text, ctx) or text
+        -- фразы с [пропусками] только вставляем, чтобы дописать детали
+        if filled:find('%[') then SA.putToChat(filled) else RP.play({ text }, ctx) end
+    elseif kind == 'rp' then RP.run(a[3], '', true)
+    elseif kind == 'run' then UI.openRun(a[3])
+    elseif kind == 'mega' then local m = cfg.megaphone[a[3]] or cfg.megaphone[1] if m then SA.say('/m ' .. m) end
+    elseif kind == 'lines' then RP.play(a[3], ctx)
+    elseif kind == 'chat' then SA.putToChat(RP.fill(a[3], ctx) or a[3])
+    elseif kind == 'ai' then W.partner[0] = true; AIX.ask()
+    elseif kind == 'sus' then
+        local id = CTX.suspect and SA.connected(CTX.suspect.id) and CTX.suspect.id or SA.nearest(10)
+        if id then UI.openSus(id) else msg('Подозреваемый не определён. Используйте /sus [id].') end
+    elseif kind == 'report' then UI.setBuf(UI.buf.report, RPT.build()); UI.openPage('report')
+    end
+end
+
+local KIND_HINT = { radio = 'Рация', rp = 'Отыгровка', run = 'Команда (окно ID)', mega = 'Мегафон', lines = 'Отыгровка', chat = 'Вставить в чат', ai = 'Разбор ситуации', sus = 'Розыск', report = 'Рапорт', custom1050 = 'Рация' }
+
+imgui.OnFrame(function() return cfg ~= nil and cfg.widget.enabled and not isPauseMenuActive() end, function(player)
+    player.HideCursor = not UI.CUR.wanted()
+    UI.placeWindow('widget', 330, 430)
+    imgui.SetNextWindowBgAlpha(0.93)
+    imgui.Begin('Быстрые ситуации##qsit', nil, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoFocusOnAppearing)
+    UI.cursorButton('w')
+    imgui.SameLine()
+    if UI.btn((cfg.widget.collapsed and 'Развернуть' or 'Свернуть') .. '##w_col', true) then cfg.widget.collapsed = not cfg.widget.collapsed end
+    imgui.SameLine()
+    if UI.btn('Скрыть##w_hide', true, 0, 0, nil, 'Вернуть: /qs или /fh → Настройки') then
+        cfg.widget.enabled = false
+        if UI.buf.widgetOn then UI.buf.widgetOn[0] = false end
+        CFG.save()
+        msg('Виджет скрыт. Вернуть: /qs')
+    end
+    if not UI.CUR.wanted() then UI.muted('Чтобы нажимать кнопки, покажите курсор: ' .. tostring(cfg.cursor.key)) end
+    imgui.Separator()
+    local s = SIT.sel
+    if cfg.widget.collapsed then
+        UI.text(s and (s.code .. '  ·  ' .. s.title) or 'Ситуация не выбрана')
+    elseif not s then
+        local w = (imgui.GetContentRegionAvail().x - S(8)) / 2
+        for i, it in ipairs(SIT.LIST) do
+            if (i % 2) == 0 then imgui.SameLine() end
+            if UI.btn(it.title .. '##sit' .. i, true, w, S(34), nil, it.code .. ': ' .. it.desc) then SIT.sel = it end
+        end
+    else
+        if UI.btn('‹ Все ситуации##w_back', true) then SIT.sel = nil end
+        imgui.SameLine()
+        UI.pill(s.code, s.unconfirmed and C.warn or C.accent)
+        UI.bold(s.title)
+        UI.muted(s.desc)
+        if #s.steps > 0 then
+            imgui.Spacing()
+            for i, st in ipairs(s.steps) do UI.text(i .. '. ' .. st) end
+        end
+        imgui.Spacing()
+        imgui.Separator()
+        local w = imgui.GetContentRegionAvail().x
+        for i, a in ipairs(s.acts) do
+            local enabled = not RP.busy or a[1] == 'ai' or a[1] == 'report' or a[1] == 'sus'
+            if a[1] == 'custom1050' and U.trim(cfg.sit.custom1050) == '' then enabled = false end
+            local tip = KIND_HINT[a[1]] .. ((a[1] == 'radio' and a[3]:find('%[')) and ': вставится в чат, допишите детали' or '')
+            if UI.btn(a[2] .. '##sa' .. i, enabled, w, 0, a[1] == 'radio' and 'primary' or nil, tip) then
+                local ok, err = pcall(SIT.run, a)
+                if not ok then log('ситуация: ' .. tostring(err)) end
+            end
+        end
+    end
+    UI.rememberWindow('widget')
+    imgui.End()
 end)
 
 -------------------------------------------------------------------------------
@@ -5020,6 +5326,13 @@ function CMD.registerAll()
         markBlip = addBlipForChar(ped)
         msg('Метка на игрока ' .. (SA.nick(id) or '?') .. ' поставлена. /rb чтобы убрать.')
     end)
+    CMD.reg('qs', function()
+        cfg.widget.enabled = not cfg.widget.enabled
+        if UI.buf.widgetOn then UI.buf.widgetOn[0] = cfg.widget.enabled end
+        CFG.save()
+        msg('Виджет «Быстрые ситуации» ' .. (cfg.widget.enabled and 'показан' or 'скрыт') .. '.')
+    end)
+    CMD.reg('cursor', function() UI.CUR.toggle() end)
     CMD.reg('rb', function()
         if markBlip then pcall(removeBlip, markBlip) markBlip = nil msg('Метка убрана.') else msg('Метки нет.') end
     end)
@@ -5090,6 +5403,7 @@ local function onWindowMessage(m, wparam)
     elseif W.quick[0] then W.quick[0] = false
     elseif W.sus[0] then W.sus[0] = false
     elseif W.menu[0] then W.menu[0] = false
+    elseif UI.CUR.manual then UI.CUR.set(false)
     else return end
     consumeWindowMessage(true, false)
 end
@@ -5097,7 +5411,7 @@ end
 -------------------------------------------------------------------------------
 -- main
 -------------------------------------------------------------------------------
-local function cursorWindows() return W.menu[0] or W.sus[0] or W.quick[0] or W.run[0] end
+local function cursorWindows() return UI.CUR.windows() end
 
 local function frame(now, state)
     if now - state.lastNearby > 1.5 then
@@ -5111,6 +5425,12 @@ local function frame(now, state)
 
     local free = not sampIsChatInputActive() and not sampIsDialogActive() and not isSampfuncsConsoleActive()
     local RAD = UI.RAD
+    -- в паузе, чате и диалоге свой курсор не держим, чтобы не спорить с системным
+    if UI.CUR.manual and (isPauseMenuActive() or sampIsDialogActive()) then UI.CUR.set(false) end
+    if free and cursorWindows() then
+        local ckey = vk['VK_' .. tostring(cfg.cursor.key)]
+        if ckey and wasKeyPressed(ckey) then UI.CUR.toggle() end
+    end
     if RAD.open then
         if not free or cursorWindows() then
             UI.radialClose()
@@ -5118,12 +5438,18 @@ local function frame(now, state)
             -- держим колёсико и тянем на пункт; отпустили: выбор
             if wasKeyReleased(vk.VK_MBUTTON) or not isKeyDown(vk.VK_MBUTTON) then UI.radialSelect() end
         else
-            -- подменю открыто: выбор щелчком левой кнопки или колёсика
-            if wasKeyPressed(vk.VK_LBUTTON) or wasKeyPressed(vk.VK_MBUTTON) then UI.radialSelect() end
+            -- подменю открыто: нажать и отпустить колёсико (или ЛКМ) на пункте
+            if wasKeyPressed(vk.VK_MBUTTON) or wasKeyPressed(vk.VK_LBUTTON) then RAD.pressed = true end
+            if RAD.pressed and (wasKeyReleased(vk.VK_MBUTTON) or wasKeyReleased(vk.VK_LBUTTON)) then
+                RAD.pressed = false
+                UI.radialSelect()
+            end
         end
     elseif free and not cursorWindows() then
         local key = vk['VK_' .. tostring(cfg.ai.key)] or vk.VK_F3
         if wasKeyPressed(key) then W.partner[0] = not W.partner[0] end
+        local ckey = vk['VK_' .. tostring(cfg.cursor.key)]
+        if ckey and ckey ~= key and wasKeyPressed(ckey) then UI.CUR.toggle() end
         if wasKeyPressed(vk.VK_MBUTTON) then
             local ok, ped = false, nil
             if isKeyDown(vk.VK_RBUTTON) then ok, ped = getCharPlayerIsTargeting(PLAYER_HANDLE) end

@@ -1,6 +1,6 @@
 {
- "version": "0.2.7",
- "size": 272621,
- "sha256": "58e672324ace8fb8438f68eef9c80d13a057a76b4e5a0d40efcbdd66b4e8d233",
+ "version": "0.2.8",
+ "size": 297507,
+ "sha256": "b81542d4d057d197768a6c5586730afb57857497d42fb0325d145f0c79829e1c",
  "file": "moonloader/MVDHelper.lua"
 }

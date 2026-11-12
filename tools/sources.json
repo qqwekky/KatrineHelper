@@ -1,0 +1,19 @@
+{
+  "server": "Blue",
+  "docs": [
+    {"id": "УК", "title": "Уголовный кодекс", "url": "https://forum.adv-rp.com/threads/ugolovnyi-kodeks.2749126/"},
+    {"id": "АК", "title": "Административный кодекс", "url": "https://forum.adv-rp.com/threads/administrativnyi-kodeks.2749128/"},
+    {"id": "ПК", "title": "Процессуальный кодекс", "url": "https://forum.adv-rp.com/threads/protsessual-nyi-kodeks.2749122/"},
+    {"id": "Устав МВД", "title": "Действующий Устав Министерства внутренних дел", "url": "https://forum.adv-rp.com/threads/mia-deistvuyushchii-ustav-ministerstva-vnutrennikh-del.2668361/"},
+    {"id": "Правила МВД", "title": "Общие правила МВД", "url": "https://forum.adv-rp.com/threads/blue-obshchiye-pravila-mvd.2059402/"},
+    {"id": "ФЗ о МВД", "title": "Федеральный закон О Министерстве Внутренних Дел", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-o-ministerstve-vnutrennikh-del.2477905/"},
+    {"id": "Конституция", "title": "Действующая Конституция Синей Федерации", "url": "https://forum.adv-rp.com/threads/deistvuyushchaya-konstitutsiya-sinei-federatsii.2569944/"},
+    {"id": "ФЗ о неприкосновенности", "title": "ФЗ Об обеспечении неприкосновенности государственных служащих", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-ob-obespechenii-neprikosnovennosti-gosudarstvennykh-sluzhashchikh.2413552/"},
+    {"id": "ФЗ о закрытых территориях", "title": "ФЗ О закрытых территориях", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-o-zakrytykh-territoriyakh.2743665/"},
+    {"id": "ФЗ о публичных мероприятиях", "title": "ФЗ О публичных мероприятиях", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-o-publichnykh-meropriyatiyakh.2280890/"},
+    {"id": "ФЗ о каннабисе", "title": "ФЗ О Правовом статусе Каннабиса", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-o-pravovom-statuse-kannabisa.2509514/"},
+    {"id": "ФЗ об адвокатах", "title": "ФЗ Об адвокатах и коллегии адвокатов", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-ob-advokatakh-i-kollegii-advokatov.2208369/"},
+    {"id": "ФЗ о ЧП", "title": "ФЗ О Чрезвычайном и военном положении", "url": "https://forum.adv-rp.com/threads/federal-nyi-zakon-o-chrezvychainom-i-voyennom-polozhenii.2207643/"},
+    {"id": "Регламент ИК", "title": "Регламент Исправительной колонии", "url": "https://forum.adv-rp.com/threads/mia-reglament-ispravitel-noi-kolonii.2668373/"}
+  ]
+}

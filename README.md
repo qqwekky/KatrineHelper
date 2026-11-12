@@ -6,7 +6,7 @@
 
 ## Установка
 
-1. Нужны MoonLoader 0.26+, SAMPFUNCS и библиотеки: mimgui, samp.events, encoding, effil, requests, dkjson (обычно уже стоят в любой сборке с хелперами, иначе качайте с blast.hk).
+1. Нужны MoonLoader 0.26+, SAMPFUNCS и библиотеки: mimgui, samp.events, encoding, effil, requests (обычно уже стоят в любой сборке с хелперами, иначе качайте с blast.hk).
 2. Скопируйте `moonloader/MVDHelper.lua` в папку `moonloader` игры.
 3. Зайдите в игру. База законов и настройки ИИ скачаются сами.
 

@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта, в интерфейсе и в запросах к ИИ используется UTF-8.
 
-local VERSION = '0.2.6'
+local VERSION = '0.2.7'
 
 script_name('MVD Helper')
 script_author('qqwekky')
@@ -515,13 +515,26 @@ function SA.putToChat(text)
     sampSetChatInputText(U.to1251(text))
 end
 
+local CITY = { [1] = 'Лос-Сантос', [2] = 'Сан-Фиерро', [3] = 'Лас-Вентурас' }
+-- Район и город. Названия районов из GXT берём только если это обычный текст:
+-- в русификаторах GXT бывает в своей кодировке и превращается в кракозябры.
 function SA.zoneName()
     local x, y, z = SA.myPos()
     if not x then return 'неизвестно' end
-    local key = getNameOfZone(x, y, z)
-    local name = key and getGxtText(key) or ''
-    if name == '' then return string.format('%.0f, %.0f', x, y) end
-    return U.toUtf(name)
+    local okC, cityId = pcall(getCityPlayerIsIn, PLAYER_HANDLE)
+    local city = okC and CITY[cityId] or nil
+    local okZ, key = pcall(getNameOfZone, x, y, z)
+    local raw = okZ and key and getGxtText(key) or ''
+    local zone
+    if raw ~= '' and not raw:find('[\128-\167\169-\183\185-\191~]') then
+        zone = U.trim(U.toUtf(raw))
+        local low = zone:lower()
+        if low == 'san andreas' or zone == '' then zone = nil end
+    end
+    if zone and city then return city .. ', ' .. zone end
+    if zone then return zone end
+    if city then return city end
+    return 'округ Сан-Андреас'
 end
 
 -------------------------------------------------------------------------------
@@ -3207,66 +3220,138 @@ end
 -------------------------------------------------------------------------------
 local RPT = { text = '', saved = nil }
 
+-- Как действия из журнала звучат в служебном документе. Не относящиеся к делу пропускаются.
+RPT.ACTS = {
+    m = { once = 'через громкоговоритель потребовал{a} от водителя остановить транспортное средство', many = 'неоднократно (%s) через громкоговоритель требовал{a} остановить транспортное средство' },
+    ticket = { once = 'составил{a} постановление о штрафе%s' },
+    takelic = { once = 'изъял{a} водительское удостоверение%s' },
+    cuff = { once = 'применил{a} специальные средства (наручники)' },
+    uncuff = { once = 'снял{a} наручники' },
+    hold = { once = 'сопроводил{a} задержанного' },
+    search = { once = '[провёл|провела] личный досмотр' },
+    putpl = { once = 'поместил{a} задержанного в служебный автомобиль' },
+    eject = { once = 'высадил{a} гражданина из транспортного средства' },
+    pull = { once = '[извлёк|извлекла] гражданина из транспортного средства' },
+    su = { once = 'объявил{a} гражданина в розыск%s' },
+    clear = { once = 'снял{a} гражданина с розыска' },
+    arrest = { once = 'доставил{a} задержанного в участок и оформил{a} задержание' },
+    unmask = { once = 'снял{a} маску с гражданина для установления личности' },
+    r = { once = 'доложил{a} о ситуации по рации' },
+}
+
+local function plural(n, one, few, many)
+    local m10, m100 = n % 10, n % 100
+    if m10 == 1 and m100 ~= 11 then return one end
+    if m10 >= 2 and m10 <= 4 and (m100 < 12 or m100 > 14) then return few end
+    return many
+end
+RPT.plural = plural
+
+local function actDetail(cmd, rest)
+    local a = L.findRef(rest or '')
+    if cmd == 'ticket' then
+        local sum = (rest or ''):match('^%d+%s+(%d+)')
+        return (sum and (' на сумму ' .. sum .. '$') or '') .. (a and (' по ' .. a.doc .. ' ' .. a.n) or '')
+    elseif cmd == 'su' then
+        local lvl = (rest or ''):match('^%d+%s+(%d+)')
+        return (lvl and (', уровень ' .. lvl) or '') .. (a and (', ' .. a.doc .. ' ' .. a.n) or '')
+    elseif cmd == 'takelic' then
+        return a and (' по ' .. a.doc .. ' ' .. a.n) or ''
+    end
+    return ''
+end
+
 function RPT.build()
-    local entries = CTX.window(30, 120)
+    local entries = CTX.window(30, 160)
     local res = AIX.result
-    if type(res) ~= 'table' or #entries == 0 then
+    if type(res) ~= 'table' then
         local okL, r = pcall(AN.analyze, entries, nil)
         res = okL and r or nil
     end
-    local UNKNOWN = 'неизвестно'
+    local NA = 'не установлено'
     local p = cfg.profile
-    local t = {}
-    t[#t + 1] = 'РАПОРТ'
-    t[#t + 1] = 'Сотрудник: ' .. (p.rank ~= '' and (p.rank .. ' ') or '') .. RP.fullName()
-    t[#t + 1] = 'Подразделение: ' .. (D.DEPT_FULL[p.dept] or p.dept)
-    t[#t + 1] = 'Дата и время: ' .. os.date('%d.%m.%Y %H:%M')
-    t[#t + 1] = 'Место: ' .. SA.zoneName()
-    local parts = {}
-    for _, x in ipairs(res and res.participants or {}) do
-        if x.role ~= 'me' then parts[#parts + 1] = U.rpName(x.nick) .. ' [' .. x.id .. '], ' .. U.lower(CTX.ROLE_TITLE[x.role] or x.role) end
+    local me = (p.rank ~= '' and (p.rank .. ' ') or '') .. RP.fullName()
+    local f = function(s) return RP.fill(s, {}) or s end
+
+    -- участники: по именам только сотрудники, граждане без имён, как в служебных документах
+    local officers, suspect, witnesses = {}, false, 0
+    local seenOff = {}
+    for id, n in pairs(CTX.nearby) do
+        if n.officer and n.dist and n.dist < 40 then seenOff[id] = true; officers[#officers + 1] = 'сотрудник ' .. U.rpName(n.nick) end
     end
-    t[#t + 1] = 'Участники: ' .. (#parts > 0 and table.concat(parts, '; ') or UNKNOWN)
-    -- причина остановки: моя фраза со словом "причин" или "нарушил"
+    for _, x in ipairs(res and res.participants or {}) do
+        if x.role == 'officer' then
+            if not seenOff[x.id] then seenOff[x.id] = true; officers[#officers + 1] = 'сотрудник ' .. U.rpName(x.nick) end
+        elseif x.role == 'suspect' then suspect = true
+        elseif x.role == 'witness' then witnesses = witnesses + 1 end
+    end
+
+    -- действия в хронологическом порядке, повторы объединяются
+    local acts, counts, order, firstTime = {}, {}, {}, nil
+    for _, e in ipairs(entries) do
+        if e.isCmd and e.cmd and RPT.ACTS[e.cmd] then
+            firstTime = firstTime or e.time
+            local rest = e.text:match('^Я ввёл команду: /%S+%s*(.-)%s*%(?[^%(]*%)?$') or ''
+            if not counts[e.cmd] then order[#order + 1] = { cmd = e.cmd, rest = rest } end
+            counts[e.cmd] = (counts[e.cmd] or 0) + 1
+        end
+    end
+    for _, o in ipairs(order) do
+        local d = RPT.ACTS[o.cmd]
+        local s
+        if counts[o.cmd] > 1 and d.many then s = string.format(d.many, counts[o.cmd] .. ' ' .. plural(counts[o.cmd], 'раз', 'раза', 'раз'))
+        else s = d.once:find('%%s') and string.format(d.once, actDetail(o.cmd, o.rest)) or d.once end
+        acts[#acts + 1] = f(s)
+    end
+
     local reason
     for _, e in ipairs(entries) do
         if e.mine and not e.isCmd then
             local low = U.lower(e.text)
-            if has(low, { 'причин', 'нарушил', 'превысил', 'вы остановлены', 'за то что' }) then reason = e.text end
+            if has(low, { 'причин', 'нарушил', 'превысил', 'вы остановлены', 'за то что' }) then reason = e.text:gsub('^Я:%s*', '') end
         end
     end
-    t[#t + 1] = 'Причина остановки: ' .. (reason and U.cut(reason, 160) or UNKNOWN)
     local viol = {}
     for _, v in ipairs(res and res.violations or {}) do viol[#viol + 1] = v.what end
-    t[#t + 1] = 'Выявленное нарушение: ' .. (#viol > 0 and table.concat(viol, '; ') or UNKNOWN)
-    local arts = {}
-    for _, v in ipairs(res and res.violations or {}) do if v.a then arts[#arts + 1] = v.a.doc .. ' ' .. v.a.n end end
-    -- статьи из моих команд /su и /ticket, если они есть в базе
-    for _, e in ipairs(entries) do
-        if e.isCmd and (e.cmd == 'su' or e.cmd == 'ticket') then
-            local a = L.findRef(e.text)
-            if a then arts[#arts + 1] = a.doc .. ' ' .. a.n end
-        end
-    end
-    local uniq, ua = {}, {}
-    for _, a in ipairs(arts) do if not uniq[a] then uniq[a] = true; ua[#ua + 1] = a end end
-    t[#t + 1] = 'Статья: ' .. (#ua > 0 and table.concat(ua, ', ') or UNKNOWN)
-    local acts = {}
-    for _, e in ipairs(entries) do
-        if e.isCmd then acts[#acts + 1] = e.time .. ' ' .. e.text:gsub('^Я ввёл команду: ', '') end
-    end
-    t[#t + 1] = 'Проведённые действия:'
-    if #acts == 0 then t[#t + 1] = '  ' .. UNKNOWN end
-    for _, a in ipairs(acts) do t[#t + 1] = '  ' .. a end
-    local result = UNKNOWN
+    local arts, uniq = {}, {}
+    local function addArt(a) if a and not uniq[L.key(a.doc, a.n)] then uniq[L.key(a.doc, a.n)] = true; arts[#arts + 1] = a.doc .. ' ' .. a.n end end
+    for _, v in ipairs(res and res.violations or {}) do addArt(v.a) end
+    for _, e in ipairs(entries) do if e.isCmd and (e.cmd == 'su' or e.cmd == 'ticket' or e.cmd == 'takelic') then addArt(L.findRef(e.text)) end end
+
     local cmds = {}
     for _, e in ipairs(entries) do if e.isCmd and e.cmd then cmds[e.cmd] = true end end
-    if cmds.arrest then result = 'задержанный доставлен и оформлен (/arrest)'
-    elseif cmds.putpl then result = 'задержанный помещён в служебный автомобиль'
-    elseif cmds.cuff then result = 'задержан, надеты наручники'
-    elseif cmds.ticket then result = 'выписан штраф'
-    elseif cmds.su then result = 'объявлен розыск' end
+    local result = NA
+    if cmds.arrest then result = 'задержанный доставлен в участок, задержание оформлено'
+    elseif cmds.putpl then result = 'задержанный помещён в служебный автомобиль для доставления'
+    elseif cmds.cuff then result = 'гражданин задержан'
+    elseif cmds.su then result = 'гражданин объявлен в розыск'
+    elseif cmds.ticket then result = 'на гражданина наложен штраф'
+    elseif cmds.m and not cmds.cuff then result = 'требование об остановке не выполнено, ситуация не завершена' end
+
+    local place = SA.zoneName()
+    local t = {}
+    t[#t + 1] = 'РАПОРТ'
+    t[#t + 1] = ''
+    t[#t + 1] = 'Руководству: ' .. (D.DEPT_FULL[p.dept] or p.dept)
+    t[#t + 1] = 'От: ' .. me
+    t[#t + 1] = 'Дата: ' .. os.date('%d.%m.%Y') .. ', время: ' .. (firstTime and firstTime:sub(1, 5) or os.date('%H:%M'))
+    t[#t + 1] = 'Место: ' .. place
+    t[#t + 1] = ''
+    local body = 'Докладываю, что ' .. os.date('%d.%m.%Y') .. (firstTime and (' около ' .. firstTime:sub(1, 5)) or '') .. ' в районе ' .. place .. ', находясь при исполнении служебных обязанностей'
+    if #acts > 1 then body = body .. ', я ' .. table.concat(acts, ', ', 1, #acts - 1) .. ' и ' .. acts[#acts] .. '.'
+    elseif #acts == 1 then body = body .. ', я ' .. acts[1] .. '.'
+    else body = body .. ', я [провёл|провела] проверку.' end
+    t[#t + 1] = f(body)
+    t[#t + 1] = ''
+    t[#t + 1] = 'Подозреваемый: ' .. (suspect and 'неустановленное лицо' or NA)
+    t[#t + 1] = 'Сотрудники на месте: ' .. (#officers > 0 and table.concat(officers, ', ') or 'не присутствовали')
+    t[#t + 1] = 'Очевидцы: ' .. (witnesses > 0 and (witnesses .. ' ' .. plural(witnesses, 'неустановленный гражданин', 'неустановленных гражданина', 'неустановленных граждан')) or 'не установлены')
+    t[#t + 1] = 'Основание остановки: ' .. (reason and U.cut(reason, 160) or NA)
+    t[#t + 1] = 'Выявленное нарушение: ' .. (#viol > 0 and table.concat(viol, '; ') or NA)
+    t[#t + 1] = 'Статья: ' .. (#arts > 0 and table.concat(arts, ', ') or NA)
     t[#t + 1] = 'Результат: ' .. result
+    t[#t + 1] = ''
+    t[#t + 1] = me .. ' / подпись /'
     RPT.text = table.concat(t, '\n')
     return RPT.text
 end

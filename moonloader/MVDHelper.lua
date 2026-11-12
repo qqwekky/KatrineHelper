@@ -1,7 +1,7 @@
 script_name('MVD Helper')
 script_author('qqwekky')
 script_description('Хелпер для МВД Advance RP Blue с ИИ-напарником')
-script_version('0.1.1')
+script_version('0.1.2')
 script_properties('work-in-pause')
 
 -- Файл в кодировке UTF-8. В чат всё уходит через u8:decode (CP1251).
@@ -167,7 +167,7 @@ local dkjson = (function()
 end)()
 local effil_ok, effil = pcall(require, 'effil')
 
-local VERSION = '0.1.1'
+local VERSION = '0.1.2'
 local clock = localClock or os.clock
 local REPO_RAW = 'https://raw.githubusercontent.com/qqwekky/MVDHelper/main/'
 local DIR = getWorkingDirectory() .. '/MVDHelper'
@@ -1165,7 +1165,7 @@ local function tabSettings()
     imgui.InputText('Пароль', buf.pass, ffi.sizeof(buf.pass), imgui.InputTextFlags.Password)
 end
 
-imgui.OnFrame(function() return showMenu[0] end, function()
+imgui.OnFrame(function() return cfg ~= nil and showMenu[0] end, function()
     local sw, sh = getScreenResolution()
     imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
     imgui.SetNextWindowSize(imgui.ImVec2(640, 500), imgui.Cond.FirstUseEver)
@@ -1187,7 +1187,7 @@ imgui.OnFrame(function() return showMenu[0] end, function()
 end)
 
 -- Окно напарника (без курсора, поверх игры)
-imgui.OnFrame(function() return showPartner[0] and cfg.ai.enabled and not isPauseMenuActive() end, function(player)
+imgui.OnFrame(function() return cfg ~= nil and showPartner[0] and cfg.ai.enabled and not isPauseMenuActive() end, function(player)
     player.HideCursor = not showMenu[0]
     local pc = cfg.partner
     imgui.SetNextWindowPos(imgui.ImVec2(pc.x, pc.y), imgui.Cond.FirstUseEver)
@@ -1240,7 +1240,7 @@ imgui.OnFrame(function() return showPartner[0] and cfg.ai.enabled and not isPaus
 end)
 
 -- Умный розыск
-imgui.OnFrame(function() return showSus[0] end, function()
+imgui.OnFrame(function() return cfg ~= nil and showSus[0] end, function()
     local sw, sh = getScreenResolution()
     imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
     imgui.SetNextWindowSize(imgui.ImVec2(560, 460), imgui.Cond.FirstUseEver)
@@ -1259,7 +1259,7 @@ end)
 
 -- Быстрое меню по игроку
 local QUICK = { 'cuff', 'uncuff', 'hold', 'putpl', 'eject', 'search', 'ticket', 'takelic', 'arrest', 'clear' }
-imgui.OnFrame(function() return showQuick[0] end, function()
+imgui.OnFrame(function() return cfg ~= nil and showQuick[0] end, function()
     local mx, my = getCursorPos()
     imgui.SetNextWindowPos(imgui.ImVec2(mx, my), imgui.Cond.Appearing)
     local nick = quickTarget >= 0 and sampIsPlayerConnected(quickTarget) and sampGetPlayerNickname(quickTarget) or '?'
@@ -1377,6 +1377,7 @@ end
 -- События
 -------------------------------------------------------------------------------
 function sampev.onServerMessage(color, text)
+    if not cfg then return end
     local t = u8(text)
     if cfg.filter.enabled then
         for _, w in ipairs(cfg.filter.words) do
@@ -1387,10 +1388,12 @@ function sampev.onServerMessage(color, text)
 end
 
 function sampev.onSendChat(m)
+    if not cfg then return end
     pushEvent('[Я] ' .. u8(m), true)
 end
 
 function sampev.onSendCommand(c)
+    if not cfg then return end
     local t = u8(c)
     local low = ulower(t)
     if low:find('^/me') or low:find('^/do') or low:find('^/su') or low:find('^/cuff') or low:find('^/search')
@@ -1402,6 +1405,7 @@ end
 
 local loginSent = false
 function sampev.onShowDialog(id, style, title, b1, b2, text)
+    if not cfg then return end
     if cfg.autologin.enabled and cfg.autologin.password ~= '' and style == 3 and not loginSent then
         local t = ulower(u8(title) .. ' ' .. u8(text))
         if t:find('авториз') or t:find('пароль') then

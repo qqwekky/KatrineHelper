@@ -1,7 +1,7 @@
 script_name('MVD Helper')
 script_author('qqwekky')
 script_description('Хелпер для МВД Advance RP Blue с ИИ-напарником')
-script_version('0.1.3')
+script_version('0.1.4')
 script_properties('work-in-pause')
 
 -- Файл в кодировке UTF-8. В чат всё уходит через u8:decode (CP1251).
@@ -12,6 +12,24 @@ local ffi = require 'ffi'
 local encoding = require 'encoding'
 encoding.default = 'CP1251'
 local u8 = encoding.UTF8
+
+-- Перекодировки, которые не роняют скрипт на непереводимых символах
+local function to1251(s)
+    s = tostring(s or '')
+    local ok, r = pcall(function() return u8:decode(s) end)
+    if ok and type(r) == 'string' then return r end
+    local plain = s:gsub('[\226-\244][\128-\191]*', '')
+    ok, r = pcall(function() return u8:decode(plain) end)
+    if ok and type(r) == 'string' then return r end
+    return (s:gsub('[\128-\255]+', '?'))
+end
+
+local function toUtf(s)
+    if type(s) ~= 'string' then return '' end
+    local ok, r = pcall(function() return u8(s) end)
+    if ok and type(r) == 'string' then return r end
+    return (s:gsub('[\128-\255]', '?'))
+end
 local sampev = require 'lib.samp.events'
 local vk = require 'vkeys'
 local dlstatus = require('moonloader').download_status
@@ -166,7 +184,7 @@ local dkjson = (function()
 end)()
 local effil_ok, effil = pcall(require, 'effil')
 
-local VERSION = '0.1.3'
+local VERSION = '0.1.4'
 local clock = localClock or os.clock
 local REPO_RAW = 'https://raw.githubusercontent.com/qqwekky/MVDHelper/main/'
 local DIR = getWorkingDirectory() .. '/MVDHelper'
@@ -202,12 +220,24 @@ local function writeFile(p, s)
     return true
 end
 
+local TRACE_PATH = DIR .. '/trace.txt'
+local traceState = { net = '-', ui = '-', bg = '-' }
+local function trace(slot, stage)
+    if traceState[slot] == stage then return end
+    traceState[slot] = stage
+    local f = io.open(TRACE_PATH, 'w')
+    if f then
+        f:write(os.date('%H:%M:%S'), ' net=', traceState.net, ' ui=', traceState.ui, ' bg=', traceState.bg)
+        f:close()
+    end
+end
+
 local function msg(text)
-    sampAddChatMessage(u8:decode('{4A86E8}[MVD Helper] {FFFFFF}' .. text), -1)
+    sampAddChatMessage(to1251('{4A86E8}[MVD Helper] {FFFFFF}' .. text), -1)
 end
 
 local function say(text)
-    sampSendChat(u8:decode(text))
+    sampSendChat(to1251(text))
 end
 
 local function stripColors(s)
@@ -370,7 +400,7 @@ local function makeRpHandler(key, withRp)
     local def = DEFAULT_RP[key]
     return function(raw)
         raw = raw or ''
-        local ctx = { arg = u8(raw) }
+        local ctx = { arg = toUtf(raw) }
         if def.needId then
             local id, rest = parseIdArgs(raw)
             if not id or not sampIsPlayerConnected(id) then
@@ -378,7 +408,7 @@ local function makeRpHandler(key, withRp)
                 return
             end
             ctx.target = rpName(sampGetPlayerNickname(id))
-            ctx.arg = u8(rest)
+            ctx.arg = toUtf(rest)
         end
         local final = '/' .. key .. (raw ~= '' and (' ' .. raw) or '')
         local rc = cfg.rp[key]
@@ -425,6 +455,27 @@ local function stems(text)
     return out
 end
 
+local GLYPH_OK = {}
+for ch in ('‚„…†‡€‰‹‘’“”•–—™›№«»→'):gmatch('[\194-\244][\128-\191]*') do GLYPH_OK[ch] = true end
+local GLYPH_MAP = {
+    ['−'] = '-', ['‐'] = '-', ['‑'] = '-', ['―'] = '—', ['⅔'] = '2/3', ['½'] = '1/2', ['¼'] = '1/4',
+    ['✓'] = '+', ['✔'] = '+', ['✅'] = '+', ['❌'] = 'x', ['✗'] = 'x', ['✘'] = 'x',
+    ['●'] = '•', ['▪'] = '•', ['■'] = '•', ['◦'] = '•', ['◆'] = '•', ['·'] = '•',
+    ['▸'] = '→', ['►'] = '→', ['➡'] = '→', ['⇒'] = '→', ['➜'] = '→', ['➤'] = '→',
+    ['\194\160'] = ' ', ['\226\128\175'] = ' ', ['\226\128\137'] = ' ',
+}
+local function clean(s)
+    if type(s) ~= 'string' then return '' end
+    if not s:find('[\194-\244]') then return s end
+    return (s:gsub('[\194-\244][\128-\191]*', function(ch)
+        if GLYPH_MAP[ch] then return GLYPH_MAP[ch] end
+        local b = ch:byte()
+        if (b >= 208 and b <= 211) or b == 194 or b == 195 then return ch end
+        if GLYPH_OK[ch] then return ch end
+        return ''
+    end))
+end
+
 local function indexLaws()
     laws.flat, laws.df = {}, {}
     for _, d in ipairs(laws.docs) do
@@ -432,7 +483,7 @@ local function indexLaws()
             local set = {}
             for _, s in ipairs(stems((a.ch or '') .. ' ' .. (a.t or ''))) do set[s] = true end
             for s in pairs(set) do laws.df[s] = (laws.df[s] or 0) + 1 end
-            laws.flat[#laws.flat + 1] = { doc = d.id, n = a.n, ch = a.ch or '', t = a.t or '', w = a.w, f = a.f, set = set }
+            laws.flat[#laws.flat + 1] = { doc = d.id, n = tostring(a.n), ch = clean(a.ch or ''), t = clean(a.t or ''), w = tonumber(a.w), f = tonumber(a.f), set = set }
         end
     end
 end
@@ -571,7 +622,7 @@ end
 -- HTTP без подвисаний игры: effil (если есть) или неблокирующие сокеты
 -------------------------------------------------------------------------------
 local function log(text)
-    print(u8:decode('[MVD Helper] ' .. tostring(text)))
+    print(to1251('[MVD Helper] ' .. tostring(text)))
 end
 
 local function dechunk(body)
@@ -602,11 +653,13 @@ local function socketHttp(method, url, args)
         wait(0)
     end
 
+    trace('net', 'dns ' .. host)
     local ip = socket.dns.toip(host)
     if not ip then error('не найден адрес ' .. host) end
     local tcp = socket.tcp()
     local conn
     local ok, err = pcall(function()
+        trace('net', 'connect')
         tcp:settimeout(0)
         tcp:connect(ip, port)
         while true do
@@ -615,6 +668,7 @@ local function socketHttp(method, url, args)
             check()
         end
 
+        trace('net', 'tls')
         local ctx, cerr
         for _, proto in ipairs({ 'any', 'tlsv1_2', 'sslv23', 'tlsv1' }) do
             local okc, c = pcall(ssl.newcontext, { mode = 'client', protocol = proto, verify = 'none', options = 'all' })
@@ -634,6 +688,7 @@ local function socketHttp(method, url, args)
             check()
         end
 
+        trace('net', 'send')
         local body = args.data or ''
         local lines = {
             method .. ' ' .. path .. ' HTTP/1.1',
@@ -659,6 +714,7 @@ local function socketHttp(method, url, args)
             end
         end
 
+        trace('net', 'recv')
         local chunks = {}
         local total, headEnd, need, chunked = '', nil, nil, false
         while true do
@@ -697,7 +753,9 @@ local function socketHttp(method, url, args)
         if chunked then text = dechunk(text) end
         return { status_code = status, text = text }
     end)
+    trace('net', 'close')
     pcall(function() if conn then conn:close() else tcp:close() end end)
+    trace('net', '-')
     if not ok then error(err, 0) end
     return err
 end
@@ -789,13 +847,14 @@ end
 local function updateNearby()
     local res = {}
     local mx, my, mz = getCharCoordinates(PLAYER_PED)
-    for id = 0, sampGetMaxPlayerId(false) do
-        if sampIsPlayerConnected(id) then
-            local ok, ped = sampGetCharHandleBySampPlayerId(id)
-            if ok and doesCharExist(ped) then
+    for _, ped in ipairs(getAllChars and getAllChars() or {}) do
+        if ped ~= PLAYER_PED and doesCharExist(ped) then
+            local ok, id = sampGetPlayerIdByCharHandle(ped)
+            if ok and id and id >= 0 then
                 local x, y, z = getCharCoordinates(ped)
                 if getDistanceBetweenCoords3d(mx, my, mz, x, y, z) < 40 then
-                    res[sampGetPlayerNickname(id)] = true
+                    local nick = sampGetPlayerNickname(id)
+                    if nick then res[nick] = true end
                 end
             end
         end
@@ -844,7 +903,7 @@ local function parseAnswer(text)
     local s = text:match('%b{}')
     local t = s and jdecode(s)
     if type(t) == 'table' then return t end
-    return { situation = '', next = text }
+    return { situation = '', next = clean(text) }
 end
 
 local function callProvider(i, prompt, done)
@@ -892,7 +951,9 @@ local function askAI(question)
     ai.pending = true
     ai.dirty = false
     ai.lastCall = clock()
+    trace('net', 'prompt')
     local prompt = buildPrompt(question)
+    trace('net', '-')
     callProvider(1, prompt, function(text)
         ai.pending = false
         if not text then
@@ -901,9 +962,11 @@ local function askAI(question)
             ai.result = { situation = 'ИИ недоступен', next = 'Ниже похожие статьи из базы.' }
             return
         end
+        trace('net', 'parse')
         ai.raw = text
         ai.result = parseAnswer(text)
         ai.status = 'готово'
+        trace('net', '-')
     end)
 end
 
@@ -919,6 +982,8 @@ local susTarget = -1
 local quickTarget = -1
 local page = 1
 local fontBold = nil
+local dpi = 1
+local function S(v) return math.floor(v * dpi + 0.5) end
 local glyphRanges = nil
 
 local CLR = {
@@ -952,17 +1017,18 @@ local function header(s)
     if fontBold then imgui.PushFont(fontBold) end
     colored(CLR.accent, s)
     if fontBold then imgui.PopFont() end
+    imgui.Separator()
     imgui.Spacing()
 end
 
 local function row(left, right)
     colored(CLR.accent, left)
-    imgui.SameLine(190)
+    imgui.SameLine(S(200))
     text(right)
 end
 
 local function sval(v)
-    if type(v) == 'string' then return v end
+    if type(v) == 'string' then return clean(v) end
     if type(v) == 'number' then return tostring(v) end
     return ''
 end
@@ -975,9 +1041,9 @@ local function cut(s, n)
     return s .. '…'
 end
 
-local function toggleButton(label, active, w)
+local function toggleButton(label, active, w, h)
     imgui.PushStyleColor(imgui.Col.Button, active and CLR.btnOn or CLR.btnOff)
-    local clicked = imgui.Button(label, imgui.ImVec2(w or 0, 0))
+    local clicked = imgui.Button(label, imgui.ImVec2(w or 0, h or 0))
     imgui.PopStyleColor(1)
     return clicked
 end
@@ -1013,7 +1079,7 @@ local function field(label, id, b, hint, flags)
 end
 
 local function area(id, b, h)
-    return imgui.InputTextMultiline('##' .. id, b, ffi.sizeof(b), imgui.ImVec2(-1, h))
+    return imgui.InputTextMultiline('##' .. id, b, ffi.sizeof(b), imgui.ImVec2(-1, S(h)))
 end
 
 local function syncBuffers()
@@ -1067,8 +1133,8 @@ local function applyStyle()
     s.WindowRounding = 10; s.ChildRounding = 8; s.FrameRounding = 6; s.GrabRounding = 6
     s.PopupRounding = 8; s.ScrollbarRounding = 8; s.TabRounding = 6
     s.WindowBorderSize = 1; s.ChildBorderSize = 1; s.FrameBorderSize = 0
-    s.WindowPadding = imgui.ImVec2(14, 12); s.FramePadding = imgui.ImVec2(10, 6)
-    s.ItemSpacing = imgui.ImVec2(8, 7); s.ItemInnerSpacing = imgui.ImVec2(6, 5)
+    s.WindowPadding = imgui.ImVec2(16, 14); s.FramePadding = imgui.ImVec2(10, 6)
+    s.ItemSpacing = imgui.ImVec2(8, 8); s.ItemInnerSpacing = imgui.ImVec2(6, 5)
     s.ScrollbarSize = 12; s.GrabMinSize = 10
     s.WindowTitleAlign = imgui.ImVec2(0.5, 0.5)
 
@@ -1106,6 +1172,11 @@ end
 imgui.OnInitialize(function()
     local io = imgui.GetIO()
     io.IniFilename = nil
+    local okDpi, scale = pcall(imgui.GetDpiScale)
+    if okDpi and type(scale) == 'number' and scale > 0.5 and scale < 4 then dpi = scale end
+    -- в режиме 4 mimgui сам масштабирует шрифты, в остальных это делаем мы
+    local okMode, mode = pcall(imgui.GetDpiScalingMode)
+    local fs = (okMode and mode == 4) and 1 or dpi
     local fonts = getFolderPath(0x14) .. '\\'
     local regular = doesFileExist(fonts .. 'segoeui.ttf') and (fonts .. 'segoeui.ttf') or (fonts .. 'trebucbd.ttf')
     local bold = doesFileExist(fonts .. 'segoeuib.ttf') and (fonts .. 'segoeuib.ttf') or (fonts .. 'trebucbd.ttf')
@@ -1117,9 +1188,9 @@ imgui.OnInitialize(function()
         glyphRanges = imgui.ImVector_ImWchar()
         builder:BuildRanges(glyphRanges)
         io.Fonts:Clear()
-        io.Fonts:AddFontFromFileTTF(regular, 16.0, nil, glyphRanges[0].Data)
+        io.Fonts:AddFontFromFileTTF(regular, math.floor(16 * fs), nil, glyphRanges[0].Data)
         if doesFileExist(bold) then
-            fontBold = io.Fonts:AddFontFromFileTTF(bold, 18.0, nil, glyphRanges[0].Data)
+            fontBold = io.Fonts:AddFontFromFileTTF(bold, math.floor(19 * fs), nil, glyphRanges[0].Data)
         end
     end
     applyStyle()
@@ -1153,7 +1224,7 @@ local function pageMain()
     muted('Подразделение')
     for i, d in ipairs(DEPTS) do
         if i > 1 then imgui.SameLine() end
-        if toggleButton(d .. '##dept', cfg.profile.dept == d, 90) then cfg.profile.dept = d end
+        if toggleButton(d .. '##dept', cfg.profile.dept == d, S(96)) then cfg.profile.dept = d end
     end
     imgui.Checkbox('Женский персонаж (отыгровки в женском роде)', buf.female)
     muted('Пауза между строками отыгровки, мс')
@@ -1213,7 +1284,7 @@ local function pageBinds()
         imgui.AlignTextToFramePadding()
         text('/')
         imgui.SameLine()
-        imgui.SetNextItemWidth(180)
+        imgui.SetNextItemWidth(S(180))
         imgui.InputText('##cmd', buf.bindCmd[i], ffi.sizeof(buf.bindCmd[i]))
         imgui.SameLine()
         if imgui.Button('Удалить') then remove = i end
@@ -1318,23 +1389,33 @@ local PAGE_DRAW = { pageMain, pageRp, pageBinds, pageLaws, pageAI, pageSettings 
 imgui.OnFrame(function() return cfg ~= nil and showMenu[0] end, function()
     local sw, sh = getScreenResolution()
     imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-    imgui.SetNextWindowSize(imgui.ImVec2(820, 560), imgui.Cond.FirstUseEver)
-    imgui.Begin('MVD Helper##main', showMenu, imgui.WindowFlags.NoCollapse)
+    imgui.SetNextWindowSize(imgui.ImVec2(S(860), S(580)), imgui.Cond.FirstUseEver)
+    imgui.Begin('Настройки помощника##main', showMenu, imgui.WindowFlags.NoCollapse)
 
-    imgui.BeginChild('##nav', imgui.ImVec2(170, -44), true)
+    local footer = imgui.GetFrameHeightWithSpacing() + S(4)
+    imgui.BeginChild('##nav', imgui.ImVec2(S(190), -footer), true)
+    if fontBold then imgui.PushFont(fontBold) end
+    colored(CLR.accent, 'MVD Helper')
+    if fontBold then imgui.PopFont() end
+    muted(cfg.profile.dept .. ', версия ' .. VERSION)
+    imgui.Spacing()
+    imgui.Separator()
+    imgui.Spacing()
+    imgui.PushStyleVarVec2(imgui.StyleVar.ButtonTextAlign, imgui.ImVec2(0.08, 0.5))
     for i, name in ipairs(PAGES) do
-        if toggleButton(name .. '##nav', page == i, -1) then page = i end
+        if toggleButton(name .. '##nav', page == i, -1, S(36)) then page = i end
     end
+    imgui.PopStyleVar(1)
     imgui.EndChild()
     imgui.SameLine()
-    imgui.BeginChild('##page', imgui.ImVec2(0, -44), true)
+    imgui.BeginChild('##page', imgui.ImVec2(0, -footer), true)
     PAGE_DRAW[page]()
     imgui.EndChild()
 
-    if imgui.Button('Сохранить настройки', imgui.ImVec2(190, 0)) then applyBuffers() end
+    if imgui.Button('Сохранить настройки', imgui.ImVec2(S(210), 0)) then applyBuffers() end
     imgui.SameLine()
     imgui.AlignTextToFramePadding()
-    muted('Версия ' .. VERSION .. '. Изменения вступают в силу после сохранения.')
+    muted('Изменения начнут действовать после сохранения.')
     imgui.End()
 end)
 
@@ -1414,11 +1495,20 @@ end)
 -------------------------------------------------------------------------------
 -- Умный розыск: слева список статей, справа выбранная статья
 -------------------------------------------------------------------------------
-local sus = { q = nil, ver = nil, list = {}, sel = nil }
+local sus = { q = nil, ver = nil, list = {}, sel = nil, nick = '' }
+
+local function openSus(id)
+    susTarget = id
+    local okNick, nick = pcall(sampGetPlayerNickname, id)
+    sus.nick = (okNick and type(nick) == 'string') and nick or 'игрок не найден'
+    setBuf(buf.susq, '')
+    showQuick[0] = false
+    showSus[0] = true
+end
 
 local function issueWanted(a)
     if not a or not a.w or susTarget < 0 then return end
-    local reason = u8:decode(a.doc .. ' ' .. a.n)
+    local reason = to1251(a.doc .. ' ' .. a.n)
     showSus[0] = false
     sampProcessChatInput(string.format('/su %d %d %s', susTarget, a.w, reason))
 end
@@ -1426,8 +1516,8 @@ end
 imgui.OnFrame(function() return cfg ~= nil and showSus[0] end, function()
     local sw, sh = getScreenResolution()
     imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-    imgui.SetNextWindowSize(imgui.ImVec2(820, 500), imgui.Cond.FirstUseEver)
-    local nick = susTarget >= 0 and sampIsPlayerConnected(susTarget) and sampGetPlayerNickname(susTarget) or 'игрок не найден'
+    imgui.SetNextWindowSize(imgui.ImVec2(S(860), S(520)), imgui.Cond.FirstUseEver)
+    local nick = sus.nick
     imgui.Begin('Умный розыск##sus', showSus, imgui.WindowFlags.NoCollapse)
     row('Подозреваемый', nick .. ' [' .. susTarget .. ']')
     field('Фильтр по номеру статьи или словам', 'susq', buf.susq, 'Например: 8.1 или похищение')
@@ -1444,9 +1534,9 @@ imgui.OnFrame(function() return cfg ~= nil and showSus[0] end, function()
     elseif #sus.list == 0 then
         muted('Подходящих статей нет.')
     else
-        imgui.BeginChild('##suslist', imgui.ImVec2(330, 0), true)
+        imgui.BeginChild('##suslist', imgui.ImVec2(S(340), 0), true)
         for i, a in ipairs(sus.list) do
-            local title = a.doc .. ' ' .. a.n .. '   ' .. a.w .. ' ур.   ' .. cut(a.t, 46)
+            local title = a.doc .. ' ' .. a.n .. '  •  ' .. a.w .. ' ур.  •  ' .. cut((a.t:gsub('%s+', ' ')), 44)
             if imgui.Selectable(title .. '##s' .. i, sus.sel == a) then sus.sel = a end
         end
         imgui.EndChild()
@@ -1479,7 +1569,7 @@ imgui.OnFrame(function() return cfg ~= nil and showQuick[0] end, function()
     local nick = quickTarget >= 0 and sampIsPlayerConnected(quickTarget) and sampGetPlayerNickname(quickTarget) or 'игрок'
     imgui.Begin(nick .. ' [' .. quickTarget .. ']##quick', showQuick, imgui.WindowFlags.AlwaysAutoResize + imgui.WindowFlags.NoCollapse)
     for _, k in ipairs(QUICK) do
-        if imgui.Button(DEFAULT_RP[k].title .. '##q' .. k, imgui.ImVec2(210, 0)) then
+        if imgui.Button(DEFAULT_RP[k].title .. '##q' .. k, imgui.ImVec2(S(220), 0)) then
             showQuick[0] = false
             if k == 'ticket' or k == 'takelic' then
                 sampSetChatInputEnabled(true)
@@ -1489,13 +1579,13 @@ imgui.OnFrame(function() return cfg ~= nil and showQuick[0] end, function()
             end
         end
     end
-    if imgui.Button('Умный розыск##qsus', imgui.ImVec2(210, 0)) then
-        susTarget = quickTarget; setBuf(buf.susq, ''); showSus[0] = true; showQuick[0] = false
+    if imgui.Button('Умный розыск##qsus', imgui.ImVec2(S(220), 0)) then
+        openSus(quickTarget)
     end
     imgui.Separator()
     muted('Мегафон')
     for i, m in ipairs(cfg.megaphone) do
-        if imgui.Button(cut(m, 34) .. '##mm' .. i, imgui.ImVec2(210, 0)) then say('/m ' .. m) showQuick[0] = false end
+        if imgui.Button(cut(m, 34) .. '##mm' .. i, imgui.ImVec2(S(220), 0)) then say('/m ' .. m) showQuick[0] = false end
     end
     imgui.End()
 end)
@@ -1510,7 +1600,7 @@ registerBinds = function()
     for _, b in ipairs(cfg.binds) do
         if b.cmd and b.cmd ~= '' and not DEFAULT_RP[b.cmd] then
             sampRegisterChatCommand(b.cmd, function(raw)
-                local ctx = { arg = u8(raw or '') }
+                local ctx = { arg = toUtf(raw or '') }
                 local id = parseIdArgs(raw or '')
                 if id and sampIsPlayerConnected(id) then ctx.target = rpName(sampGetPlayerNickname(id)) end
                 playLines(b.lines, ctx)
@@ -1525,7 +1615,7 @@ local function zoneName()
     local x, y, z = getCharCoordinates(PLAYER_PED)
     local key = getNameOfZone(x, y, z)
     local name = key and getGxtText(key) or ''
-    if name == '' then name = string.format('%.0f, %.0f', x, y) else name = u8(name) end
+    if name == '' then name = string.format('%.0f, %.0f', x, y) else name = toUtf(name) end
     return name
 end
 
@@ -1542,15 +1632,15 @@ local function registerCommands()
     sampRegisterChatCommand('ask', function(raw)
         if not raw or raw == '' then msg('Используйте: /ask [вопрос]') return end
         showPartner[0] = true
-        askAI(u8(raw))
+        askAI(toUtf(raw))
     end)
     sampRegisterChatCommand('sus', function(raw)
         local id = parseIdArgs(raw or '')
         if not id or not sampIsPlayerConnected(id) then msg('Используйте: /sus [id]') return end
-        susTarget = id; setBuf(buf.susq, ''); showSus[0] = true
+        openSus(id)
     end)
     sampRegisterChatCommand('laws', function(raw)
-        setBuf(buf.lawq, u8(raw or '')); page = 4; showMenu[0] = true
+        setBuf(buf.lawq, toUtf(raw or '')); page = 4; showMenu[0] = true
     end)
     sampRegisterChatCommand('mm', function(raw)
         local n = tonumber(raw)
@@ -1592,7 +1682,7 @@ end
 -------------------------------------------------------------------------------
 function sampev.onServerMessage(color, text)
     if not cfg then return end
-    local t = u8(text)
+    local t = toUtf(text)
     if cfg.filter.enabled then
         for _, w in ipairs(cfg.filter.words) do
             if t:find(w, 1, true) then return false end
@@ -1603,14 +1693,14 @@ end
 
 function sampev.onSendChat(m)
     if not cfg then return end
-    pushEvent('[Я] ' .. u8(m), true)
+    pushEvent('[Я] ' .. toUtf(m), true)
 end
 
 function sampev.onSendCommand(c)
     if not cfg then return end
-    local t = u8(c)
+    local t = toUtf(c)
     local low = ulower(t)
-    if low:find('^/me') or low:find('^/do') or low:find('^/su') or low:find('^/cuff') or low:find('^/search')
+    if low:find('^/me') or low:find('^/do') or low:find('^/su ') or low:find('^/cuff') or low:find('^/search')
         or low:find('^/ticket') or low:find('^/arrest') or low:find('^/putpl') or low:find('^/takelic')
         or low:find('^/m ') or low:find('^/r ') or low:find('^/eject') or low:find('^/pull') or low:find('^/clear') then
         pushEvent('[Я] ' .. t, true)
@@ -1621,12 +1711,12 @@ local loginSent = false
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not cfg then return end
     if cfg.autologin.enabled and cfg.autologin.password ~= '' and style == 3 and not loginSent then
-        local t = ulower(u8(title) .. ' ' .. u8(text))
+        local t = ulower(toUtf(title) .. ' ' .. toUtf(text))
         if t:find('авториз') or t:find('пароль') then
             loginSent = true
             lua_thread.create(function()
                 wait(300)
-                sampSendDialogResponse(id, 1, -1, u8:decode(cfg.autologin.password))
+                sampSendDialogResponse(id, 1, -1, to1251(cfg.autologin.password))
             end)
             return false
         end
@@ -1642,6 +1732,15 @@ function main()
     if not doesDirectoryExist(DIR) then createDirectory(DIR) end
     if not doesDirectoryExist(getWorkingDirectory() .. '/config') then createDirectory(getWorkingDirectory() .. '/config') end
 
+    local prevTrace = readFile(TRACE_PATH)
+    local crashed = prevTrace and prevTrace ~= '' and not prevTrace:find('ok$')
+    if crashed then
+        log('Прошлый запуск завершился аварийно. Последнее состояние: ' .. prevTrace)
+        local f = io.open(DIR .. '/crashes.txt', 'a')
+        if f then f:write(os.date('%Y-%m-%d '), prevTrace, '\n') f:close() end
+    end
+    writeFile(TRACE_PATH, 'start')
+
     loadCfg()
     syncBuffers()
     loadProviders()
@@ -1649,6 +1748,8 @@ function main()
     registerCommands()
 
     msg('Загружен v' .. VERSION .. '. Меню: /fh, окно напарника: ' .. cfg.ai.key .. ' или /ai.')
+
+    if crashed then msg('Прошлый раз игра закрылась аварийно. Запись об этом сохранена в moonloader/MVDHelper/crashes.txt.') end
 
     checkLaws()
     checkProviders()
@@ -1659,7 +1760,13 @@ function main()
     while true do
         wait(0)
         local now = clock()
-        if now - lastNearby > 2 then updateNearby() lastNearby = now end
+        if now - lastNearby > 2 then
+            trace('bg', 'nearby')
+            updateNearby()
+            trace('bg', '-')
+            lastNearby = now
+        end
+        trace('ui', (showMenu[0] and ('menu' .. page) or '') .. (showSus[0] and '+sus' or '') .. (showQuick[0] and '+quick' or '') .. (showPartner[0] and '+partner' or ''))
 
         if not sampIsChatInputActive() and not sampIsDialogActive() and not isSampfuncsConsoleActive() then
             if wasKeyPressed(partnerKey) then showPartner[0] = not showPartner[0] end
@@ -1680,5 +1787,8 @@ function main()
 end
 
 function onScriptTerminate(s)
-    if s == thisScript() and cfg then saveCfg() end
+    if s == thisScript() then
+        if cfg then saveCfg() end
+        writeFile(TRACE_PATH, os.date('%H:%M:%S') .. ' ok')
+    end
 end

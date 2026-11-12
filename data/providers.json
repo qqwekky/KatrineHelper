@@ -1,0 +1,6 @@
+{
+  "providers": [
+    {"name": "LLM7", "type": "openai", "url": "https://api.llm7.io/v1/chat/completions", "key": "unused", "model": "gpt-4.1-nano-2025-04-14"},
+    {"name": "Pollinations", "type": "pollinations", "url": "https://text.pollinations.ai/", "model": "openai"}
+  ]
+}

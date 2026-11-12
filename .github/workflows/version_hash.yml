@@ -1,0 +1,30 @@
+name: Хэш версии скрипта
+
+# После загрузки нового MVDHelper.lua пересчитывает version.json (версия, размер, SHA-256),
+# чтобы автообновление у игроков проверяло целостность файла.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "moonloader/MVDHelper.lua"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hash:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tools/make_version.py
+      - name: Commit
+        run: |
+          git config user.name "version-bot"
+          git config user.email "version-bot@users.noreply.github.com"
+          git add version.json
+          git diff --cached --quiet || git commit -m "version.json: хэш и размер скрипта"
+          git push

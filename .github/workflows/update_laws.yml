@@ -1,5 +1,6 @@
 name: Обновление базы законов
 
+# Раз в 10 дней: кодексы, Устав и правила с форума (tools/sources.json) плюс пособия из data/guides.json.
 on:
   schedule:
     - cron: "17 3 */10 * *"

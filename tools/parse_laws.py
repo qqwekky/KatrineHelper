@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Скачивает законы с forum.adv-rp.com и собирает data/laws.json.
+"""Скачивает законы с forum.adv-rp.com и собирает data/laws.json для Katrine Helper.
 
 Запускается GitHub Actions раз в 10 дней (см. .github/workflows/update_laws.yml).
 Локальный запуск: pip install requests beautifulsoup4 && python tools/parse_laws.py
+
+К кодексам из tools/sources.json добавляются пособия и регламенты из data/guides.json
+(программа Академии, пособие КТО, регламенты подразделений). В базе у них kind = "guide":
+справочник ИИ использует их как практические рекомендации после законов.
 """
 import datetime
 import hashlib
@@ -17,11 +21,12 @@ from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "tools" / "sources.json"
+GUIDES = ROOT / "data" / "guides.json"
 OUT = ROOT / "data" / "laws.json"
 VERSION_FILE = ROOT / "data" / "laws_version.json"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MVDHelper-law-sync/1.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) KatrineHelper-law-sync/1.1",
     "Accept-Language": "ru-RU,ru;q=0.9",
 }
 
@@ -165,15 +170,41 @@ def chunk_fallback(text: str):
     return out
 
 
+def load_guides():
+    """Пособия и регламенты (data/guides.json). Если файла нет или он повреждён, пособий в базе не будет."""
+    if not GUIDES.exists():
+        return []
+    try:
+        data = json.loads(GUIDES.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[err] guides.json: {e}", file=sys.stderr)
+        return []
+    docs = data.get("docs", []) if isinstance(data, dict) else data
+    out = []
+    for d in docs:
+        if isinstance(d, dict) and d.get("id") and isinstance(d.get("articles"), list):
+            d = dict(d)
+            d["kind"] = "guide"
+            out.append(d)
+    return out
+
+
+def guides_hash(docs) -> str:
+    return hashlib.sha1(json.dumps(docs, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
 def main():
     sources = json.loads(SOURCES.read_text(encoding="utf-8"))
-    old = {}
+    old, old_guides = {}, []
     if OUT.exists():
         try:
             for d in json.loads(OUT.read_text(encoding="utf-8")).get("docs", []):
-                old[d["id"]] = d
+                if d.get("kind") == "guide":
+                    old_guides.append(d)
+                else:
+                    old[d["id"]] = d
         except Exception:  # noqa: BLE001
-            old = {}
+            old, old_guides = {}, []
 
     docs, changes, errors = [], [], []
     for src in sources["docs"]:
@@ -210,6 +241,11 @@ def main():
     if not docs:
         print("ничего не скачано", file=sys.stderr)
         sys.exit(1)
+
+    guides = load_guides()
+    if guides_hash(guides) != guides_hash(old_guides):
+        changes.append("Пособия и регламенты: " + (", ".join(d["id"] for d in guides) if guides else "убраны"))
+    docs.extend(guides)
 
     today = datetime.date.today().strftime("%Y.%m.%d")
     if not changes and OUT.exists():

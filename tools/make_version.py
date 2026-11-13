@@ -1,21 +1,22 @@
-"""Пересчитывает version.json по moonloader/MVDHelper.lua: версия, размер и SHA-256.
-Запуск: python tools/make_version.py (из корня репозитория). Его же вызывает GitHub Actions."""
+"""Пересчитывает version.json по moonloader/KatrineHelper.lua: версия, размер и SHA-256.
+Запуск: python tools/make_version.py (из корня репозитория). Его же вызывает GitHub Actions.
+Автообновление скрипта принимает файл, только если совпадают размер и SHA-256 из version.json."""
 import hashlib
 import json
 import pathlib
 import re
 
 root = pathlib.Path(__file__).resolve().parent.parent
-script = root / 'moonloader' / 'MVDHelper.lua'
+script = root / 'moonloader' / 'KatrineHelper.lua'
 data = script.read_bytes()
 m = re.search(rb"local VERSION = '([0-9.]+)'", data)
 if not m:
-    raise SystemExit('В MVDHelper.lua не найдена строка local VERSION')
+    raise SystemExit('В KatrineHelper.lua не найдена строка local VERSION')
 info = {
     'version': m.group(1).decode(),
     'size': len(data),
     'sha256': hashlib.sha256(data).hexdigest(),
-    'file': 'moonloader/MVDHelper.lua',
+    'file': 'moonloader/KatrineHelper.lua',
 }
 target = root / 'version.json'
 old = target.read_text(encoding='utf-8') if target.exists() else ''

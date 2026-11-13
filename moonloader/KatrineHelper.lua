@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта и в интерфейсе используется UTF-8.
 
-local VERSION = '1.4.0'
+local VERSION = '1.5.0'
 
 script_name('Katrine Helper')
 script_author('qqwekky')
@@ -1132,7 +1132,7 @@ D.LEGACY = {
 -------------------------------------------------------------------------------
 -- Конфиг: moonloader/config/KatrineHelper.json. Настройки прошлых версий переносятся.
 -------------------------------------------------------------------------------
-local CFG_VERSION = 13
+local CFG_VERSION = 14
 local DEFAULT_CFG = {
     cfg_version = CFG_VERSION,
     profile = { name = '', surname = '', rank = 'Сержант', dept = 'ЛСПД', female = false, unit = '' },
@@ -1179,8 +1179,11 @@ local DEFAULT_CFG = {
     update = { auto = true, failed_sha = '', failed_version = '', retry_after = 0, last = '', last_result = '' },
     ui = {
         scale = 1.0,
-        theme = {},                   -- свои цвета интерфейса (Настройки → Оформление)
-        main = { x = -1, y = -1, w = 1000, h = 660 },
+        theme = {},                   -- свои цвета интерфейса (Настройки → Внешний вид)
+        anim = true,                  -- плавные переходы кнопок, переключателей, меню и фона
+        -- фон главного окна: картинка, затемнение (0.40–0.90), непрозрачность панелей (0.80–1.00), кадрирование
+        bg = { on = true, id = 'lspd', dim = 0.62, panel = 0.90, align = 'center', readable = false },
+        main = { x = -1, y = -1, w = 880, h = 590 },
         sus = { x = -1, y = -1, w = 860, h = 520 },
         ref = { x = -1, y = -1, w = 760, h = 560 },
         fbinfo = { x = 20, y = 20, w = 240, h = 170 },
@@ -1443,6 +1446,11 @@ local function migrate(c)
         end
         c.cfg_version = 13
     end
+    if v < 14 then
+        -- 1.5.0: компактное главное окно. Прежний размер сбрасывается к новому стандартному, положение остаётся.
+        if type(c.ui) == 'table' and type(c.ui.main) == 'table' then c.ui.main.w, c.ui.main.h = nil, nil end
+        c.cfg_version = 14
+    end
     return c
 end
 
@@ -1527,6 +1535,14 @@ function CFG.load()
     if type(cfg.gear.wpick) ~= 'table' then cfg.gear.wpick = {} end
     if type(cfg.gear.names) ~= 'table' then cfg.gear.names = {} end
     if type(cfg.ui.theme) ~= 'table' then cfg.ui.theme = {} end
+    -- фон: значения из старых или правленных вручную конфигов приводятся к допустимым
+    local bg = cfg.ui.bg
+    if type(bg.id) ~= 'string' or bg.id == '' then bg.id = 'lspd' end
+    bg.on, bg.readable = bg.on ~= false, bg.readable == true
+    bg.dim = math.max(0.40, math.min(0.90, tonumber(bg.dim) or 0.62))
+    bg.panel = math.max(0.80, math.min(1.00, tonumber(bg.panel) or 0.90))
+    if bg.align ~= 'left' and bg.align ~= 'right' then bg.align = 'center' end
+    cfg.ui.anim = cfg.ui.anim ~= false
     for _, g in ipairs({ 'med', 'mask', 'repair' }) do cfg.gear.buy[g] = math.max(0, math.min(5, math.floor(tonumber(cfg.gear.buy[g]) or 0))) end
     cfg.antiflood.enabled = cfg.antiflood.enabled ~= false
     cfg.antiflood.gap = math.max(500, math.min(5000, math.floor(tonumber(cfg.antiflood.gap) or 1800)))
@@ -4700,7 +4716,7 @@ local C = {
     accent2 = V4(0.200, 0.320, 0.540, 1),
     siren   = V4(0.780, 0.300, 0.300, 1),
     text    = V4(0.900, 0.918, 0.945, 1),
-    muted   = V4(0.540, 0.580, 0.650, 1),
+    muted   = V4(0.610, 0.650, 0.720, 1),
     good    = V4(0.420, 0.760, 0.540, 1),
     warn    = V4(0.920, 0.730, 0.330, 1),
     bad     = V4(0.880, 0.420, 0.400, 1),
@@ -4809,8 +4825,8 @@ local function pill(s, c)
     local ts = imgui.CalcTextSize(s)
     local padX, padY = S(8), S(3)
     local p2 = imgui.ImVec2(p.x + ts.x + padX * 2, p.y + ts.y + padY * 2)
-    dl:AddRectFilled(p, p2, U32(c, 0.14), S(4))
-    dl:AddRect(p, p2, U32(c, 0.45), S(4), 15, 1)
+    dl:AddRectFilled(p, p2, U32(c, 0.16), S(9))
+    dl:AddRect(p, p2, U32(c, 0.50), S(9), 15, 1)
     dl:AddText(imgui.ImVec2(p.x + padX, p.y + padY), U32(c, 1), s)
     imgui.Dummy(imgui.ImVec2(ts.x + padX * 2, ts.y + padY * 2))
 end
@@ -4846,14 +4862,14 @@ function UI.drawConfirm()
         bold(c.title, C.warn)
         imgui.PushTextWrapPos(S(420)); imgui.TextUnformatted(c.body); imgui.PopTextWrapPos()
         imgui.Spacing()
-        if btn('Да, выполнить##cyes', true, S(150), 0, 'danger') then
+        if UI.btn('Да, выполнить##cyes', true, S(150), 0, 'danger') then
             imgui.CloseCurrentPopup()
             UI.confirm = nil
             local ok, err = pcall(c.onYes)
             if not ok then UI.toastShow('Ошибка: ' .. tostring(err), 'bad') end
         end
         imgui.SameLine()
-        if btn('Отмена##cno', true, S(120)) then imgui.CloseCurrentPopup(); UI.confirm = nil end
+        if UI.btn('Отмена##cno', true, S(120)) then imgui.CloseCurrentPopup(); UI.confirm = nil end
         imgui.EndPopup()
     end
 end
@@ -4886,22 +4902,25 @@ UI.setBuf, UI.getBuf = setBuf, getBuf
 
 -- Поля ввода, которые отмечают несохранённые изменения
 local function field(label, id, b, hint, flags, width)
-    if label and label ~= '' then muted(label) end
+    if label and label ~= '' then UI.label(label) end
     imgui.SetNextItemWidth(width or -1)
     local changed
     if hint then changed = imgui.InputTextWithHint('##' .. id, hint, b, ffi.sizeof(b), flags or 0)
     else changed = imgui.InputText('##' .. id, b, ffi.sizeof(b), flags or 0) end
+    UI.focusRing()
     return changed
 end
 local function dfield(...) local c = field(...) if c then UI.dirty = true end return c end
 local function area(id, b, h, dirty)
-    local c = imgui.InputTextMultiline('##' .. id, b, ffi.sizeof(b), imgui.ImVec2(-1, S(h)))
+    local c = imgui.InputTextMultiline('##' .. id, b, ffi.sizeof(b), imgui.ImVec2(-1, h < 0 and h or S(h)))
+    UI.focusRing()
     if c and dirty ~= false then UI.dirty = true end
     return c
 end
-local function check(label, b)
-    local c = imgui.Checkbox(label, b)
-    if c then UI.dirty = true end
+-- Переключатель вкл/выкл для полей, которые сохраняются кнопкой «Сохранить»
+local function check(label, b, tip)
+    local v, c = UI.toggle(label, b[0] == true, tip)
+    if c then b[0] = v; UI.dirty = true end
     return c
 end
 UI.field, UI.dfield, UI.area, UI.check = field, dfield, area, check
@@ -5003,44 +5022,51 @@ function UI.applyStyle()
     local c = s.Colors
     local K = imgui.Col
     local sc = UI.dpi * (cfg and cfg.ui.scale or 1)
-    s.WindowRounding = 6; s.ChildRounding = 5; s.FrameRounding = 4; s.GrabRounding = 4
-    s.PopupRounding = 5; s.ScrollbarRounding = 5; s.TabRounding = 4
+    -- Метрики при масштабе 100%: элементы 30 px, промежутки 6–8 px, отступы блоков 10–12 px
+    s.WindowRounding = 9 * sc; s.ChildRounding = 7 * sc; s.FrameRounding = 5 * sc; s.GrabRounding = 4 * sc
+    s.PopupRounding = 6 * sc; s.ScrollbarRounding = 6 * sc; s.TabRounding = 5 * sc
     s.WindowBorderSize = 1; s.ChildBorderSize = 1; s.FrameBorderSize = 0; s.PopupBorderSize = 1
-    s.WindowPadding = imgui.ImVec2(14 * sc, 12 * sc); s.FramePadding = imgui.ImVec2(10 * sc, 6 * sc)
-    s.ItemSpacing = imgui.ImVec2(8 * sc, 7 * sc); s.ItemInnerSpacing = imgui.ImVec2(6 * sc, 5 * sc)
-    s.ScrollbarSize = 10 * sc; s.GrabMinSize = 10 * sc
+    s.WindowPadding = imgui.ImVec2(10 * sc, 10 * sc); s.FramePadding = imgui.ImVec2(9 * sc, 7 * sc)
+    s.ItemSpacing = imgui.ImVec2(8 * sc, 6 * sc); s.ItemInnerSpacing = imgui.ImVec2(6 * sc, 4 * sc)
+    s.ScrollbarSize = 9 * sc; s.GrabMinSize = 10 * sc; s.IndentSpacing = 14 * sc
     s.WindowTitleAlign = imgui.ImVec2(0.02, 0.5)
+    s.SelectableTextAlign = imgui.ImVec2(0, 0.5)
 
+    local card = C.card
+    local function sh(v, d, a) return V4(math.max(0, math.min(1, v.x + d)), math.max(0, math.min(1, v.y + d)), math.max(0, math.min(1, v.z + d)), a or 1) end
     c[K.Text]                 = C.text
     c[K.TextDisabled]         = C.muted
-    c[K.WindowBg]             = C.bg
+    c[K.WindowBg]             = V4(C.bg.x, C.bg.y, C.bg.z, 0.985)
     c[K.ChildBg]              = C.panel
-    c[K.PopupBg]              = V4(C.bg.x + 0.02, C.bg.y + 0.025, C.bg.z + 0.03, 0.99)
+    -- выпадающие списки, подсказки и окна подтверждения почти непрозрачные: фон под ними не мешает
+    c[K.PopupBg]              = sh(C.bg, 0.025, 0.99)
     c[K.Border]               = C.border
     c[K.BorderShadow]         = V4(0, 0, 0, 0)
-    c[K.FrameBg]              = V4(C.card.x + 0.018, C.card.y + 0.02, C.card.z + 0.024, 1)
-    c[K.FrameBgHovered]       = V4(C.card.x + 0.048, C.card.y + 0.054, C.card.z + 0.066, 1)
-    c[K.FrameBgActive]        = V4(C.card.x + 0.068, C.card.y + 0.076, C.card.z + 0.094, 1)
-    c[K.TitleBg]              = V4(0.075, 0.084, 0.104, 1)
-    c[K.TitleBgActive]        = V4(0.090, 0.100, 0.125, 1)
-    c[K.TitleBgCollapsed]     = V4(0.075, 0.084, 0.104, 1)
-    c[K.ScrollbarBg]          = V4(0.07, 0.08, 0.10, 0.5)
-    c[K.ScrollbarGrab]        = V4(0.20, 0.23, 0.28, 1)
-    c[K.ScrollbarGrabHovered] = V4(0.26, 0.29, 0.36, 1)
+    -- поля ввода непрозрачные и темнее блока: текст в редакторах читается на любом фоне
+    c[K.FrameBg]              = sh(card, -0.028)
+    c[K.FrameBgHovered]       = sh(card, 0.0)
+    c[K.FrameBgActive]        = sh(card, 0.012)
+    c[K.TitleBg]              = sh(C.bg, 0.008)
+    c[K.TitleBgActive]        = sh(C.bg, 0.02)
+    c[K.TitleBgCollapsed]     = sh(C.bg, 0.008)
+    c[K.ScrollbarBg]          = V4(0, 0, 0, 0.18)
+    c[K.ScrollbarGrab]        = sh(card, 0.11)
+    c[K.ScrollbarGrabHovered] = sh(card, 0.17)
     c[K.ScrollbarGrabActive]  = C.accent
-    c[K.CheckMark]            = C.accent
+    c[K.CheckMark]            = V4(1, 1, 1, 1)
     c[K.SliderGrab]           = C.accent
-    c[K.SliderGrabActive]     = V4(0.48, 0.65, 0.92, 1)
+    c[K.SliderGrabActive]     = sh(C.accent, 0.08)
     c[K.Button]               = C.btn
     c[K.ButtonHovered]        = C.btnHot
-    c[K.ButtonActive]         = C.btn
-    c[K.Header]               = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.35)
-    c[K.HeaderHovered]        = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.55)
-    c[K.HeaderActive]         = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.75)
+    c[K.ButtonActive]         = sh(C.btn, -0.02)
+    c[K.Header]               = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.62)
+    c[K.HeaderHovered]        = V4(C.text.x, C.text.y, C.text.z, 0.07)
+    c[K.HeaderActive]         = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.80)
     c[K.Separator]            = C.border
-    c[K.ResizeGrip]           = V4(0.38, 0.56, 0.86, 0.15)
-    c[K.ResizeGripHovered]    = V4(0.38, 0.56, 0.86, 0.50)
-    c[K.ResizeGripActive]     = V4(0.38, 0.56, 0.86, 0.85)
+    c[K.TextSelectedBg]       = V4(C.accent.x, C.accent.y, C.accent.z, 0.35)
+    c[K.ResizeGrip]           = V4(C.accent.x, C.accent.y, C.accent.z, 0.15)
+    c[K.ResizeGripHovered]    = V4(C.accent.x, C.accent.y, C.accent.z, 0.50)
+    c[K.ResizeGripActive]     = V4(C.accent.x, C.accent.y, C.accent.z, 0.85)
     c[K.ModalWindowDimBg]     = V4(0, 0, 0, 0.45)
 end
 
@@ -5124,6 +5150,679 @@ end)
 -- Окна, которые открываются поверх игры, не показываются в чате, диалоге и паузе
 function UI.overlayFree()
     return not sampIsChatInputActive() and not sampIsDialogActive() and not isSampfuncsConsoleActive() and not isPauseMenuActive()
+end
+
+-------------------------------------------------------------------------------
+-- Набор элементов интерфейса (KIT): анимации по времени кадра, кнопки, переключатели,
+-- флажки, блоки, вкладки, раскрывающиеся секции, числовые регуляторы.
+-- Состояние анимаций хранится по ID элемента (GetIDStr), поэтому не зависит от порядка отрисовки.
+-------------------------------------------------------------------------------
+do
+local KIT = { a = {}, t = nil, dt = 1 / 60, boxH = {}, fold = {}, tabs = {} }
+UI.KIT = KIT
+local V2 = imgui.ImVec2
+
+function UI.animOn() return not cfg or not cfg.ui or cfg.ui.anim ~= false end
+
+-- Время кадра: из часов ImGui, один раз за кадр. Анимации не зависят от FPS.
+local function frameDt()
+    local okT, t = pcall(imgui.GetTime)
+    t = okT and tonumber(t) or nil
+    if t and t ~= KIT.t then
+        local d = KIT.t and (t - KIT.t) or 0
+        KIT.dt = d > 0 and math.min(d, 0.1) or 0
+        KIT.t = t
+    end
+    return KIT.dt
+end
+
+-- Плавное приближение к цели. dur: примерное время перехода в секундах.
+-- from: начальное значение для нового ключа (иначе ключ сразу встаёт в цель).
+function UI.anim(key, target, dur, from)
+    local v = KIT.a[key]
+    if not UI.animOn() then KIT.a[key] = target return target end
+    if v == nil then v = from or target end
+    local k = 1 - math.exp(-frameDt() * 4.6 / math.max(0.01, dur or 0.14))
+    v = v + (target - v) * k
+    if math.abs(target - v) < 0.003 then v = target end
+    KIT.a[key] = v
+    return v
+end
+function UI.animSet(key, v) KIT.a[key] = v end
+
+local function mix(a, b, t) return V4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t) end
+local function shade(c, d) return V4(math.max(0, math.min(1, c.x + d)), math.max(0, math.min(1, c.y + d)), math.max(0, math.min(1, c.z + d)), c.w) end
+UI.mix, UI.shade = mix, shade
+
+-- Подсказка без проверки наведения (наведение проверяет вызывающий)
+function UI.tipNow(s)
+    imgui.BeginTooltip(); imgui.PushTextWrapPos(S(340)); imgui.TextUnformatted(tostring(s)); imgui.PopTextWrapPos(); imgui.EndTooltip()
+end
+
+local function shownText(label) return (tostring(label):gsub('###.*$', ''):gsub('##.*$', '')) end
+UI.shownText = shownText
+local function idOf(label)
+    local ok, id = pcall(imgui.GetIDStr, label)
+    return ok and tostring(id) or label
+end
+
+-- Цвета кнопок по виду: основное действие, обычное, опасное
+local function btnColors(kind)
+    if kind == 'primary' then
+        return C.accent2, shade(C.accent2, 0.07), shade(C.accent2, -0.04), V4(C.accent.x, C.accent.y, C.accent.z, 0.55), V4(0.97, 0.98, 1, 1)
+    elseif kind == 'danger' then
+        local b = V4(0.36, 0.15, 0.16, 1)
+        return b, V4(0.49, 0.19, 0.20, 1), V4(0.30, 0.12, 0.13, 1), V4(0.75, 0.35, 0.35, 0.55), V4(1, 0.88, 0.88, 1)
+    end
+    return C.btn, C.btnHot, shade(C.btn, -0.02), V4(C.border.x, C.border.y, C.border.z, 1), C.text
+end
+
+-- Кнопка. w: 0 по тексту, <0 до края минус |w|. kind: 'primary', 'danger' или nil.
+-- Состояния: обычное, наведение, нажатие (продавливание без сдвига соседей), недоступное.
+function UI.btn(label, enabled, w, h, kind, tip, align)
+    if enabled == nil then enabled = true end
+    local shown = shownText(label)
+    local ts = imgui.CalcTextSize(shown)
+    local st = imgui.GetStyle()
+    local padX = st.FramePadding.x
+    w, h = w or 0, h or 0
+    if w == 0 then w = ts.x + padX * 2
+    elseif w < 0 then w = math.max(S(24), imgui.GetContentRegionAvail().x + w + 1) end
+    if h == 0 then h = imgui.GetFrameHeight() end
+    local p = imgui.GetCursorScreenPos()
+    local clicked = imgui.InvisibleButton(label, V2(w, h))
+    local hov = enabled and imgui.IsItemHovered()
+    local held = enabled and imgui.IsItemActive()
+    local id = idOf(label)
+    local th = UI.anim('bh' .. id, hov and 1 or 0, 0.14)
+    local tp = UI.anim('bp' .. id, held and 1 or 0, 0.07)
+    local base, hot, down, border, tc = btnColors(kind)
+    local bg = mix(mix(base, hot, th), down, tp)
+    local dl = imgui.GetWindowDrawList()
+    local ins = tp * S(1.5)
+    local a, b = V2(p.x + ins, p.y + ins), V2(p.x + w - ins, p.y + h - ins)
+    local alpha = enabled and 1 or 0.42
+    local r = st.FrameRounding
+    dl:AddRectFilled(a, b, UI.U32(bg, alpha), r)
+    local bc = mix(border, V4(C.accent.x, C.accent.y, C.accent.z, 0.8), kind == 'danger' and 0 or th * 0.6)
+    dl:AddRect(a, b, UI.U32(bc, (enabled and bc.w or 0.25)), r, 15, 1)
+    local tx = (align == 'left') and (p.x + padX) or (p.x + (w - ts.x) / 2)
+    local ty = p.y + (h - ts.y) / 2 + tp * S(0.5)
+    dl:PushClipRect(a, b, true)
+    dl:AddText(V2(math.max(p.x + S(4), tx), ty), UI.U32(enabled and tc or C.muted, enabled and 1 or 0.85), shown)
+    dl:PopClipRect()
+    if tip and imgui.IsItemHovered() then UI.tipNow(tip) end
+    return clicked and enabled
+end
+
+-- Переключатель вкл/выкл: дорожка с бегунком. Состояние видно по положению бегунка, не только по цвету.
+-- Возвращает новое значение и признак изменения.
+function UI.toggle(label, value, tip, enabled)
+    if enabled == nil then enabled = true end
+    local shown = shownText(label)
+    local fh = imgui.GetFrameHeight()
+    local tw, th = S(34), S(18)
+    local p = imgui.GetCursorScreenPos()
+    local clicked = imgui.InvisibleButton(label, V2(tw, fh))
+    local hov = imgui.IsItemHovered()
+    local changed = false
+    if shown ~= '' then
+        imgui.SameLine(0, S(8))
+        imgui.BeginGroup()
+        imgui.AlignTextToFramePadding()
+        if enabled then UI.text(shown) else UI.colored(C.muted, shown) end
+        imgui.EndGroup()
+        if imgui.IsItemClicked() then clicked = true end
+        hov = hov or imgui.IsItemHovered()
+    end
+    if clicked and enabled then value = not value; changed = true end
+    local id = idOf(label)
+    local t = UI.anim('tg' .. id, value and 1 or 0, 0.13)
+    local hv = UI.anim('th' .. id, (hov and enabled) and 1 or 0, 0.14)
+    local dl = imgui.GetWindowDrawList()
+    local y0 = p.y + (fh - th) / 2
+    local a, b = V2(p.x, y0), V2(p.x + tw, y0 + th)
+    local off = mix(shade(C.card, 0.05), shade(C.card, 0.09), hv)
+    local on = mix(C.accent2, shade(C.accent2, 0.06), hv)
+    local alpha = enabled and 1 or 0.45
+    dl:AddRectFilled(a, b, UI.U32(mix(off, on, t), alpha), th / 2)
+    dl:AddRect(a, b, UI.U32(mix(C.border, C.accent, t * 0.7 + hv * 0.2), alpha), th / 2, 15, 1)
+    local kr = th / 2 - S(3)
+    local kx = p.x + th / 2 + (tw - th) * t
+    dl:AddCircleFilled(V2(kx, y0 + th / 2), kr, UI.U32(mix(C.muted, V4(1, 1, 1, 1), t), alpha), 20)
+    if tip and hov then UI.tipNow(tip) end
+    return value, changed
+end
+
+-- Флажок для выбора нескольких пунктов: квадрат с галочкой, плавное заполнение
+function UI.checkbox(label, value, tip)
+    local shown = shownText(label)
+    local fh = imgui.GetFrameHeight()
+    local bs = S(17)
+    local ts = imgui.CalcTextSize(shown)
+    local p = imgui.GetCursorScreenPos()
+    local clicked = imgui.InvisibleButton(label, V2(bs + (shown ~= '' and (S(8) + ts.x) or 0), fh))
+    local hov = imgui.IsItemHovered()
+    if clicked then value = not value end
+    local id = idOf(label)
+    local t = UI.anim('cb' .. id, value and 1 or 0, 0.12)
+    local hv = UI.anim('ch' .. id, hov and 1 or 0, 0.14)
+    local dl = imgui.GetWindowDrawList()
+    local y0 = p.y + (fh - bs) / 2
+    local a, b = V2(p.x, y0), V2(p.x + bs, y0 + bs)
+    dl:AddRectFilled(a, b, UI.U32(mix(shade(C.card, 0.05 + hv * 0.04), C.accent2, t), 1), S(4))
+    dl:AddRect(a, b, UI.U32(mix(C.border, C.accent, math.max(t, hv * 0.5)), 1), S(4), 15, 1)
+    if t > 0.02 then
+        local c = UI.U32(V4(1, 1, 1, 1), t)
+        local x, y = p.x, y0
+        dl:AddLine(V2(x + bs * 0.24, y + bs * 0.52), V2(x + bs * 0.43, y + bs * 0.71), c, S(2))
+        dl:AddLine(V2(x + bs * 0.42, y + bs * 0.71), V2(x + bs * 0.77, y + bs * 0.30), c, S(2))
+    end
+    if shown ~= '' then dl:AddText(V2(p.x + bs + S(8), p.y + (fh - ts.y) / 2), UI.U32(C.text, 1), shown) end
+    if tip and hov then UI.tipNow(tip) end
+    return value, clicked
+end
+
+-- Обводка активного поля ввода (фокус) поверх рамки поля
+function UI.focusRing()
+    if imgui.IsItemActive() then
+        local a, b = imgui.GetItemRectMin(), imgui.GetItemRectMax()
+        imgui.GetWindowDrawList():AddRect(a, b, UI.U32(C.accent, 0.9), imgui.GetStyle().FrameRounding, 15, S(1.5))
+    end
+end
+
+-- Числовой регулятор «− значение +»: для коротких чисел вместо длинного ползунка. Кнопки повторяют при удержании.
+function UI.stepper(id, value, mn, mx, step, fmt, valueW)
+    step = step or 1
+    local fh = imgui.GetFrameHeight()
+    local changed = false
+    imgui.PushIDStr(id)
+    imgui.PushButtonRepeat(true)
+    if UI.btn('−##dec', value > mn, fh, fh) then value = math.max(mn, value - step); changed = true end
+    imgui.SameLine(0, S(4))
+    value = math.floor(tonumber(value) or mn)
+    local s = string.format(fmt or '%d', value)
+    local w = valueW or S(72)
+    local p = imgui.GetCursorScreenPos()
+    imgui.Dummy(V2(w, fh))
+    local dl = imgui.GetWindowDrawList()
+    dl:AddRectFilled(p, V2(p.x + w, p.y + fh), UI.U32(shade(C.card, 0.03), 1), imgui.GetStyle().FrameRounding)
+    local ts = imgui.CalcTextSize(s)
+    dl:AddText(V2(p.x + (w - ts.x) / 2, p.y + (fh - ts.y) / 2), UI.U32(C.text, 1), s)
+    imgui.SameLine(0, S(4))
+    if UI.btn('+##inc', value < mx, fh, fh) then value = math.min(mx, value + step); changed = true end
+    imgui.PopButtonRepeat()
+    imgui.PopID()
+    return value, changed
+end
+
+-- Блок с собственной тёмной заливкой. Высота берётся из прошлого кадра, поэтому у блока нет
+-- своей прокрутки: прокручивается вся страница, колесо мыши уходит родителю.
+-- opts.w ширина (0: вся строка), opts.solid почти непрозрачный фон (редакторы, тексты законов),
+-- opts.fill: высота до низа области (для списков с собственной прокруткой).
+function UI.box(id, title, fn, opts)
+    opts = opts or {}
+    local key = '##bx_' .. id
+    local fill = opts.fill
+    local h = fill and fill or (KIT.boxH[id] or S(64))
+    local a = UI.panelAlpha()
+    if opts.solid then a = math.max(a, 0.97) end
+    imgui.PushStyleColor(imgui.Col.ChildBg, V4(C.card.x, C.card.y, C.card.z, a))
+    imgui.PushStyleColor(imgui.Col.Border, V4(C.border.x, C.border.y, C.border.z, 0.95))
+    imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, V2(S(12), S(10)))
+    imgui.PushStyleVarFloat(imgui.StyleVar.ChildRounding, S(7))
+    imgui.PushStyleVarFloat(imgui.StyleVar.ScrollbarSize, fill and S(8) or 1)
+    imgui.BeginChild(key, V2(opts.w or 0, h), true, fill and 0 or imgui.WindowFlags.NoScrollWithMouse)
+    imgui.PopStyleVar(1)
+    if title then UI.boxTitle(title, opts.right) end
+    local ok, err = pcall(fn)
+    if not fill then
+        local sp = imgui.GetStyle().ItemSpacing.y
+        KIT.boxH[id] = math.max(S(36), math.floor(imgui.GetCursorPosY() - sp + S(10) + 0.5))
+    end
+    imgui.EndChild()
+    imgui.PopStyleVar(2)
+    imgui.PopStyleColor(2)
+    if not ok then error(err, 0) end
+end
+
+-- Заголовок блока: мелкие прописные буквы приглушённым цветом и тонкая линия
+function UI.boxTitle(title, right)
+    local p = imgui.GetCursorScreenPos()
+    if UI.fontBold then imgui.PushFont(UI.fontBold) end
+    UI.colored(shade(C.text, -0.04), title)
+    if UI.fontBold then imgui.PopFont() end
+    if right then
+        imgui.SameLine()
+        right()
+    end
+    local w = imgui.GetContentRegionAvail().x
+    local y = imgui.GetCursorScreenPos().y - S(2)
+    imgui.GetWindowDrawList():AddLine(V2(p.x, y), V2(p.x + w, y), UI.U32(C.border, 0.9), 1)
+    imgui.Dummy(V2(1, S(3)))
+end
+
+-- Подпись поля: мелкий приглушённый текст над полем
+function UI.label(s)
+    if UI.fontSmall then imgui.PushFont(UI.fontSmall) end
+    UI.colored(C.muted, s)
+    if UI.fontSmall then imgui.PopFont() end
+end
+function UI.hint(s) UI.label(s) end
+
+-- Две колонки, если хватает места, иначе одна. left/right получают ширину колонки (0: вся строка).
+function UI.split(left, right, minW, ratio)
+    local avail = imgui.GetContentRegionAvail().x
+    local gap = S(8)
+    if avail < (minW or S(300)) * 2 + gap then
+        left(0)
+        if right then right(0) end
+        return false
+    end
+    local lw = math.floor((avail - gap) * (ratio or 0.5))
+    imgui.BeginGroup()
+    local okL, errL = pcall(left, lw)
+    imgui.EndGroup()
+    imgui.SameLine(0, gap)
+    imgui.BeginGroup()
+    local okR, errR = true, nil
+    if right then okR, errR = pcall(right, avail - gap - lw) end
+    imgui.EndGroup()
+    if not okL then error(errL, 0) end
+    if not okR then error(errR, 0) end
+    return true
+end
+
+-- Раскрывающаяся секция: стрелка поворачивается, содержимое проявляется за ~180 мс
+function UI.fold(id, title, fn, default)
+    if KIT.fold[id] == nil then KIT.fold[id] = default == true end
+    local open = KIT.fold[id]
+    local w = imgui.GetContentRegionAvail().x
+    local h = imgui.GetFrameHeight()
+    local p = imgui.GetCursorScreenPos()
+    if imgui.InvisibleButton('##fold_' .. id, V2(w, h)) then open = not open; KIT.fold[id] = open; if open then UI.animSet('fa' .. id, 0) end end
+    local hov = imgui.IsItemHovered()
+    local hv = UI.anim('fh' .. id, hov and 1 or 0, 0.14)
+    local rot = UI.anim('fr' .. id, open and 1 or 0, 0.16)
+    local dl = imgui.GetWindowDrawList()
+    dl:AddRectFilled(p, V2(p.x + w, p.y + h), UI.U32(C.text, 0.035 + hv * 0.04), imgui.GetStyle().FrameRounding)
+    -- стрелка: вправо закрыто, вниз открыто
+    local cx, cy, s = p.x + S(12), p.y + h / 2, S(4.5)
+    local ang = rot * math.pi / 2
+    local function pt(x, y) return V2(cx + x * math.cos(ang) - y * math.sin(ang), cy + x * math.sin(ang) + y * math.cos(ang)) end
+    dl:AddTriangleFilled(pt(-s * 0.6, -s), pt(s, 0), pt(-s * 0.6, s), UI.U32(open and C.accent or C.muted, 1))
+    local ts = imgui.CalcTextSize(title)
+    dl:AddText(V2(p.x + S(26), p.y + (h - ts.y) / 2), UI.U32(C.text, 1), title)
+    if open then
+        local fa = UI.anim('fa' .. id, 1, 0.18, 0)
+        imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, math.max(0.05, fa) * imgui.GetStyle().Alpha)
+        imgui.Indent(S(6))
+        local ok, err = pcall(fn)
+        imgui.Unindent(S(6))
+        imgui.PopStyleVar(1)
+        if not ok then error(err, 0) end
+    end
+    return open
+end
+
+-- Вкладки страницы: подчёркивание переезжает к выбранной вкладке
+function UI.tabs(id, list, cur)
+    local p0 = imgui.GetCursorScreenPos()
+    local full = imgui.GetContentRegionAvail().x
+    local h = imgui.GetFrameHeight()
+    local sel, selX, selW
+    local dl = imgui.GetWindowDrawList()
+    for i, t in ipairs(list) do
+        if i > 1 then imgui.SameLine(0, S(4)) end
+        local label = t[2] .. '##tab_' .. id .. '_' .. t[1]
+        local ts = imgui.CalcTextSize(t[2])
+        local w = ts.x + S(20)
+        local p = imgui.GetCursorScreenPos()
+        if imgui.InvisibleButton(label, V2(w, h)) then cur = t[1] end
+        local hov = imgui.IsItemHovered()
+        local active = cur == t[1]
+        local hv = UI.anim('tb' .. id .. t[1], (hov or active) and 1 or 0, 0.14)
+        dl:AddRectFilled(p, V2(p.x + w, p.y + h), UI.U32(C.text, hv * (active and 0.06 or 0.04)), imgui.GetStyle().FrameRounding)
+        dl:AddText(V2(p.x + S(10), p.y + (h - ts.y) / 2), UI.U32(mix(C.muted, C.text, hv), 1), t[2])
+        if active then sel, selX, selW = t[1], p.x - p0.x, w end
+    end
+    local y = p0.y + h + S(2)
+    dl:AddLine(V2(p0.x, y), V2(p0.x + math.max(full, 10), y), UI.U32(C.border, 1), 1)
+    if sel then
+        local x = UI.anim('tx' .. id, selX, 0.16)
+        local w = UI.anim('tw' .. id, selW, 0.16)
+        dl:AddRectFilled(V2(p0.x + x + S(6), y - S(1)), V2(p0.x + x + w - S(6), y + S(1.5)), UI.U32(C.accent, 1), S(1))
+    end
+    imgui.Dummy(V2(1, S(6)))
+    return cur
+end
+
+-- Сегменты: выбор одного варианта из нескольких (подразделение, пол, выравнивание фона)
+-- Не помещается в строку: переносится на следующую
+function UI.segment(id, list, cur, w)
+    local st = imgui.GetStyle()
+    local right = imgui.GetCursorScreenPos().x + imgui.GetContentRegionAvail().x
+    for i, t in ipairs(list) do
+        local bw = (w and w > 0) and w or (imgui.CalcTextSize(t[2]).x + st.FramePadding.x * 2)
+        if i > 1 then
+            imgui.SameLine(0, S(4))
+            if imgui.GetCursorScreenPos().x + bw > right then imgui.NewLine() end
+        end
+        if UI.btn(t[2] .. '##seg_' .. id .. '_' .. tostring(t[1]), true, bw, 0, cur == t[1] and 'primary' or nil, t[3]) then cur = t[1] end
+    end
+    return cur
+end
+
+-- Плашки статусов с переносом: { {текст, цвет}, ... }
+function UI.chips(list)
+    local right = imgui.GetCursorScreenPos().x + imgui.GetContentRegionAvail().x
+    for i, c in ipairs(list) do
+        local w = imgui.CalcTextSize(c[1]).x + S(16)
+        if i > 1 then
+            imgui.SameLine(0, S(6))
+            if imgui.GetCursorScreenPos().x + w > right then imgui.NewLine() end
+        end
+        UI.pill(c[1], c[2])
+    end
+end
+
+-- Пункт бокового меню: заливка и индикатор слева плавно переезжают к активному пункту
+function UI.navItem(label, active, w, h)
+    local shown = shownText(label)
+    local p = imgui.GetCursorScreenPos()
+    local clicked = imgui.InvisibleButton(label, V2(w, h))
+    local hov = imgui.IsItemHovered()
+    local id = idOf(label)
+    local hv = UI.anim('nh' .. id, hov and 1 or 0, 0.14)
+    local av = UI.anim('na' .. id, active and 1 or 0, 0.16)
+    local dl = imgui.GetWindowDrawList()
+    local r = imgui.GetStyle().FrameRounding
+    if hv > 0.01 then dl:AddRectFilled(p, V2(p.x + w, p.y + h), UI.U32(C.text, 0.05 * hv), r) end
+    if av > 0.01 then dl:AddRectFilled(p, V2(p.x + w, p.y + h), UI.U32(C.accent2, 0.55 * av), r) end
+    local ts = imgui.CalcTextSize(shown)
+    local col = mix(mix(C.muted, C.text, hv), V4(1, 1, 1, 1), av)
+    dl:PushClipRect(p, V2(p.x + w - S(4), p.y + h), true)
+    dl:AddText(V2(p.x + S(14), p.y + (h - ts.y) / 2), UI.U32(col, 1), shown)
+    dl:PopClipRect()
+    if ts.x > w - S(18) and hov then UI.tipNow(shown) end
+    return clicked, p.y
+end
+end
+
+-------------------------------------------------------------------------------
+-- Фон главного окна (BGX). Слои: картинка → графитовое затемнение → панели со своей
+-- заливкой → поля, кнопки, текст. Картинка обрезается как cover (без искажения пропорций),
+-- рисуется в границах окна со скруглением и не двигается при прокрутке.
+-- Текстура грузится один раз при выборе фона; миниатюры маленькие и грузятся только в галерее.
+-- Нет файла, битый или неподдерживаемый файл: окно остаётся на обычном графитовом фоне.
+-------------------------------------------------------------------------------
+local BGX = { cur = nil, prev = nil, curId = false, thumbs = {}, err = nil, list = nil, fetching = {}, fetchedOnce = {} }
+UI.BGX = BGX
+do
+local V2 = imgui.ImVec2
+BGX.DIR = P.dir .. '/backgrounds'
+BGX.CUSTOM = BGX.DIR .. '/custom'
+BGX.MAX_BYTES = 12 * 1024 * 1024
+BGX.BUILTIN = {
+    { id = 'lspd', title = 'Участок LSPD', file = 'lspd.jpg' },
+    { id = 'desert', title = 'Ночная пустыня', file = 'desert.jpg' },
+    { id = 'shadow', title = 'Тень', file = 'shadow.jpg' },
+    { id = 'tanks', title = 'Танковый бой', file = 'tanks.jpg' },
+    { id = 'cathedral', title = 'Собор', file = 'cathedral.jpg' },
+    { id = 'portrait', title = 'Портрет', file = 'portrait.jpg' },
+}
+-- Рекомендуемые параметры и пределы: интерфейс нельзя сделать нечитаемым ползунками
+BGX.DEF = { on = true, id = 'lspd', dim = 0.62, panel = 0.90, align = 'center', readable = false }
+BGX.LIM = { dim = { 0.40, 0.90 }, panel = { 0.80, 1.00 } }
+
+function BGX.cfg()
+    local b = cfg.ui.bg
+    if type(b) ~= 'table' then b = U.copy(BGX.DEF); cfg.ui.bg = b end
+    return b
+end
+local function clamp(v, l) return math.max(l[1], math.min(l[2], tonumber(v) or l[1])) end
+function BGX.dim()
+    local b = BGX.cfg()
+    local d = clamp(b.dim, BGX.LIM.dim)
+    if b.readable then d = math.max(d, 0.74) end
+    return d
+end
+-- Непрозрачность панелей с текстом. Без картинки панели лежат на графите, их заливка не важна.
+function UI.panelAlpha()
+    if not cfg or not cfg.ui then return 1 end
+    local b = BGX.cfg()
+    if b.readable then return 0.985 end
+    return clamp(b.panel, BGX.LIM.panel)
+end
+function BGX.active() return BGX.cur ~= nil or BGX.prev ~= nil end
+
+-- Размер картинки по заголовку файла: JPEG (SOF), PNG (IHDR), BMP
+function BGX.imageSize(s)
+    if type(s) ~= 'string' or #s < 26 then return nil end
+    if s:sub(1, 8) == '\137PNG\r\n\26\n' then
+        local function be(i) local a, b, c, d = s:byte(i, i + 3) return ((a * 256 + b) * 256 + c) * 256 + d end
+        return be(17), be(21), 'png'
+    end
+    if s:sub(1, 2) == 'BM' then
+        local function le(i) local a, b, c, d = s:byte(i, i + 3) return a + b * 256 + c * 65536 + d * 16777216 end
+        local w, h = le(19), le(23)
+        if h >= 2147483648 then h = 4294967296 - h end
+        return w, h, 'bmp'
+    end
+    if s:byte(1) == 0xFF and s:byte(2) == 0xD8 then
+        local i, n = 3, #s
+        while i + 8 <= n do
+            if s:byte(i) ~= 0xFF then return nil end
+            local m = s:byte(i + 1)
+            if m == 0xFF then i = i + 1
+            elseif m == 0x01 or (m >= 0xD0 and m <= 0xD8) then i = i + 2
+            else
+                local len = s:byte(i + 2) * 256 + s:byte(i + 3)
+                if m >= 0xC0 and m <= 0xCF and m ~= 0xC4 and m ~= 0xC8 and m ~= 0xCC then
+                    return s:byte(i + 7) * 256 + s:byte(i + 8), s:byte(i + 5) * 256 + s:byte(i + 6), 'jpg'
+                end
+                if len < 2 then return nil end
+                i = i + 2 + len
+            end
+        end
+    end
+    return nil
+end
+function BGX.checkImage(s)
+    if type(s) ~= 'string' or #s == 0 then return false, 'пустой файл' end
+    if #s > BGX.MAX_BYTES then return false, 'файл больше 12 МБ' end
+    local w, h, kind = BGX.imageSize(s)
+    if not w then return false, 'нужен JPG, PNG или BMP' end
+    if w < 16 or h < 16 or w > 8192 or h > 8192 then return false, 'размер ' .. tostring(w) .. '×' .. tostring(h) .. ' не подходит' end
+    return true, kind, w, h
+end
+
+-- Текстура из файла: читается один раз, размер берётся из заголовка (для cover)
+function BGX.loadTex(path)
+    local s = F.read(path)
+    if not s then return nil, 'файл не найден' end
+    local ok, kind, w, h = BGX.checkImage(s)
+    if not ok then return nil, kind end
+    local buf = ffi.new('uint8_t[?]', #s)
+    ffi.copy(buf, s, #s)
+    local okT, tex = pcall(imgui.CreateTextureFromFileInMemory, buf, #s)
+    if not okT or tex == nil then return nil, 'картинку не удалось открыть' end
+    return { tex = tex, w = w, h = h }
+end
+function BGX.release(t)
+    if t and t.tex then pcall(imgui.ReleaseTexture, t.tex); t.tex = nil end
+end
+
+-- Список фонов: стандартные и свои (папка backgrounds/custom)
+local EXT = { jpg = true, jpeg = true, png = true, bmp = true }
+function BGX.items()
+    if BGX.list then return BGX.list end
+    local list = {}
+    for _, b in ipairs(BGX.BUILTIN) do
+        list[#list + 1] = { id = b.id, title = b.title, file = b.file, path = BGX.DIR .. '/' .. b.file,
+            thumb = BGX.DIR .. '/' .. b.file:gsub('%.%w+$', '_thumb.jpg'), builtin = true }
+    end
+    local okF, handle, name = pcall(findFirstFile, BGX.CUSTOM .. '/*')
+    if okF and handle then
+        local n = 0
+        while name and n < 60 do
+            local ext = name:match('%.(%w+)$')
+            if ext and EXT[ext:lower()] then
+                local utf = U.toUtf(name)
+                list[#list + 1] = { id = 'custom:' .. utf, title = U.cut(utf:gsub('%.%w+$', ''), 22), path = BGX.CUSTOM .. '/' .. name, custom = true, file = name }
+            end
+            n = n + 1
+            local okN, nxt = pcall(findNextFile, handle)
+            name = okN and nxt or nil
+        end
+        pcall(findClose, handle)
+    end
+    BGX.list = list
+    return list
+end
+function BGX.entry(id)
+    for _, e in ipairs(BGX.items()) do if e.id == id then return e end end
+end
+function BGX.exists(e) return e and F.exists(e.path) end
+
+-- Стандартный фон, которого нет на диске, можно скачать из репозитория (проверяется заголовок картинки)
+function BGX.fetch(e, cb)
+    if not e or not e.builtin or BGX.fetching[e.id] then return end
+    BGX.fetching[e.id] = true
+    F.mkdir(BGX.DIR)
+    local left = 2
+    local okAll = true
+    local function done(ok, err)
+        if not ok then okAll = false; log('фон ' .. e.file .. ': ' .. tostring(err)) end
+        left = left - 1
+        if left == 0 then
+            BGX.fetching[e.id] = nil
+            BGX.thumbs[e.id] = nil
+            if okAll and BGX.cfg().id == e.id then BGX.curId = false end
+            if cb then cb(okAll) end
+        end
+    end
+    local check = { check = function(s) return BGX.checkImage(s) end }
+    N.download(REPO_RAW .. 'data/backgrounds/' .. e.file, e.path, done, check)
+    N.download(REPO_RAW .. 'data/backgrounds/' .. e.file:gsub('%.%w+$', '_thumb.jpg'), e.thumb, done, check)
+end
+
+-- Свой фон: файл копируется в папку хелпера, поэтому не зависит от исходного места
+function BGX.addCustom(pathUtf)
+    local src = U.trim(pathUtf or ''):gsub('^"(.*)"$', '%1')
+    if src == '' then return false, 'укажите путь к файлу' end
+    local s = F.read(U.to1251(src)) or F.read(src)
+    if not s then return false, 'файл не найден: ' .. src end
+    local ok, kind = BGX.checkImage(s)
+    if not ok then return false, kind end
+    F.mkdir(BGX.DIR); F.mkdir(BGX.CUSTOM)
+    local name = 'custom_' .. os.date('%Y%m%d_%H%M%S') .. '.' .. kind
+    if not F.writePlain(BGX.CUSTOM .. '/' .. name, s) then return false, 'не удалось сохранить копию' end
+    BGX.list = nil
+    local b = BGX.cfg()
+    b.id, b.on = 'custom:' .. name, true
+    UI.FBX.save()
+    return true
+end
+function BGX.removeCustom(e)
+    if not e or not e.custom then return end
+    os.remove(e.path)
+    BGX.list = nil
+    BGX.thumbs[e.id] = nil
+    local b = BGX.cfg()
+    if b.id == e.id then b.id = BGX.DEF.id; UI.FBX.save() end
+end
+
+-- Миниатюра для галереи. Для своих фонов отдельной миниатюры нет: показывается сама картинка,
+-- только если она и так загружена как текущий фон; иначе плитка с названием.
+function BGX.thumb(e)
+    if e.custom then return (BGX.cur and BGX.cur.id == e.id) and BGX.cur or nil end
+    local t = BGX.thumbs[e.id]
+    if t == nil then
+        t = F.exists(e.thumb) and BGX.loadTex(e.thumb) or false
+        BGX.thumbs[e.id] = t or false
+    end
+    return t or nil
+end
+
+-- Обрезка cover: картинка заполняет область, лишнее срезается по краям, пропорции сохраняются
+function BGX.cover(iw, ih, w, h, align)
+    if not iw or iw <= 0 or ih <= 0 or w <= 0 or h <= 0 then return V2(0, 0), V2(1, 1) end
+    local sc = math.max(w / iw, h / ih)
+    local u, v = math.min(1, (w / sc) / iw), math.min(1, (h / sc) / ih)
+    local ax = align == 'left' and 0 or align == 'right' and 1 or 0.5
+    local u0, v0 = (1 - u) * ax, (1 - v) * 0.5
+    return V2(u0, v0), V2(u0 + u, v0 + v)
+end
+
+-- Выбранный фон меняется только по действию игрока. При смене старая картинка уходит плавно.
+local function fileSize(path)
+    local f = io.open(path, 'rb')
+    if not f then return nil end
+    local n = f:seek('end')
+    f:close()
+    return n
+end
+function BGX.update()
+    local b = BGX.cfg()
+    local want = b.on and b.id or nil
+    if want == BGX.curId then
+        -- фон не открылся: раз в несколько секунд смотрим, не появился ли файл (скачан, положен вручную).
+        -- Файл читается заново, только если его размер изменился.
+        if not (BGX.err and want and clock() - (BGX.errAt or 0) > 4) then return end
+        BGX.errAt = clock()
+        BGX.list = nil
+        local e = BGX.entry(want)
+        if not e or fileSize(e.path) == BGX.errSize then return end
+    end
+    BGX.curId = want
+    if BGX.prev then BGX.release(BGX.prev) end
+    BGX.prev, BGX.cur, BGX.err = BGX.cur, nil, nil
+    BGX.errAt, BGX.errSize = clock(), nil
+    if want then
+        local e = BGX.entry(want)
+        if not e then
+            BGX.err = 'фон не найден'
+        else
+            local t, err = BGX.loadTex(e.path)
+            if t then t.id = want; BGX.cur = t
+            else
+                BGX.err = err
+                BGX.errSize = fileSize(e.path)
+                log('фон ' .. tostring(want) .. ': ' .. tostring(err))
+                -- стандартного фона нет на диске: одна попытка скачать за сессию
+                if e.builtin and not F.exists(e.path) and not BGX.fetchedOnce[e.id] then BGX.fetchedOnce[e.id] = true; BGX.fetch(e) end
+            end
+        end
+    end
+    if BGX.prev and not UI.animOn() then BGX.release(BGX.prev); BGX.prev = nil end
+    UI.animSet('bg_fade', BGX.prev and 0 or (BGX.cur and 1 or 0))
+    if not BGX.prev and BGX.cur and UI.KIT.bgShown then UI.animSet('bg_fade', 0) end
+end
+
+-- Рисуется сразу после Begin главного окна: под всеми панелями и элементами
+function BGX.draw()
+    local okU, errU = pcall(BGX.update)
+    if not okU then log('фон: ' .. tostring(errU)); BGX.cur, BGX.prev = nil, nil end
+    UI.KIT.bgShown = true
+    if not BGX.cur and not BGX.prev then return end
+    local dl = imgui.GetWindowDrawList()
+    local p, s = imgui.GetWindowPos(), imgui.GetWindowSize()
+    local p2 = V2(p.x + s.x, p.y + s.y)
+    local r = imgui.GetStyle().WindowRounding
+    local f = UI.anim('bg_fade', 1, 0.25, 0)
+    local align = BGX.cfg().align
+    local function img(t, a)
+        if not t or not t.tex or a <= 0.01 then return end
+        local uv0, uv1 = BGX.cover(t.w, t.h, s.x, s.y, align)
+        dl:AddImageRounded(t.tex, p, p2, uv0, uv1, UI.U32(V4(1, 1, 1, 1), a), r, 15)
+    end
+    -- смена: новая картинка проявляется поверх старой; без новой старая гаснет до графита
+    img(BGX.prev, BGX.cur and 1 or (1 - f))
+    img(BGX.cur, f)
+    if f >= 1 and BGX.prev then BGX.release(BGX.prev); BGX.prev = nil end
+    dl:AddRectFilled(p, p2, UI.U32(C.bg, BGX.dim()), r)
+end
 end
 
 -------------------------------------------------------------------------------
@@ -6581,16 +7280,21 @@ end
 -- Окно выбора снаряжения
 -------------------------------------------------------------------------------
 imgui.OnFrame(function() return cfg ~= nil and W.gear[0] and UI.overlayFree() end, function()
-    UI.placeWindow('gear', 360, 460)
+    UI.placeWindow('gear', 420, 420)
     imgui.Begin('Снаряжение со склада##gear', W.gear, imgui.WindowFlags.NoCollapse)
-    UI.muted(next(cfg.gear.names or {}) and 'Названия взяты со склада сервера.' or 'Названия уточнятся, когда вы откроете склад.')
+    UI.hint(next(cfg.gear.names or {}) and 'Названия взяты со склада сервера. Отмеченное хелпер возьмёт сам.' or 'Названия уточнятся, когда вы откроете склад.')
+    imgui.Spacing()
     local names = GEAR.names()
+    -- две колонки, если окно достаточно широкое
+    local colW = imgui.GetContentRegionAvail().x / 2
+    local two = colW > S(150)
+    local n = 0
     for i = 0, GEAR.maxIndex() do
         local key = tostring(i)
-        local b = UI.cfgBools['gear' .. key] or imgui.new.bool(false)
-        UI.cfgBools['gear' .. key] = b
-        b[0] = cfg.gear.wpick[key] == true
-        if imgui.Checkbox((names[i] or ('Пункт ' .. i)) .. '##gw' .. key, b) then cfg.gear.wpick[key] = b[0]; FBX.save() end
+        if two and n % 2 == 1 then imgui.SameLine(colW + imgui.GetStyle().WindowPadding.x) end
+        local v, ch = UI.checkbox(U.cut(names[i] or ('Пункт ' .. i), two and 22 or 40) .. '##gw' .. key, cfg.gear.wpick[key] == true, names[i])
+        if ch then cfg.gear.wpick[key] = v; FBX.save() end
+        n = n + 1
     end
     imgui.Spacing()
     if UI.btn('Готово##gear_ok', true, -1, 0, 'primary') then W.gear[0] = false end
@@ -6603,14 +7307,23 @@ end)
 -------------------------------------------------------------------------------
 -- Переключатели, которые сразу пишутся в конфиг (без кнопки «Сохранить»)
 UI.cfgBools = {}
-function UI.cfgCheck(label, tbl, key, tip)
-    local id = label .. '|' .. key
-    local b = UI.cfgBools[id] or imgui.new.bool(false)
-    UI.cfgBools[id] = b
-    b[0] = tbl[key] == true
-    if imgui.Checkbox(label, b) then tbl[key] = b[0]; FBX.save() end
-    if tip then UI.tooltip(tip) end
+-- Включение функции: переключатель, пишется в конфиг сразу
+function UI.cfgCheck(label, tbl, key, tip, enabled)
+    local v, c = UI.toggle(label, tbl[key] == true, tip, enabled)
+    if c then tbl[key] = v; FBX.save() end
     return tbl[key]
+end
+-- Выбор нескольких пунктов: флажок, пишется в конфиг сразу
+function UI.cfgFlag(label, tbl, key, tip)
+    local v, c = UI.checkbox(label, tbl[key] == true, tip)
+    if c then tbl[key] = v; FBX.save() end
+    return tbl[key]
+end
+-- Короткое число: регулятор «− значение +»
+function UI.cfgStep(id, tbl, key, mn, mx, step, fmt, w)
+    local v, c = UI.stepper(id, tonumber(tbl[key]) or mn, mn, mx, step, fmt, w)
+    if c then tbl[key] = v; FBX.save() end
+    return c
 end
 UI.cfgTexts = {}
 function UI.cfgText(id, tbl, key, hint, size, width)
@@ -6618,14 +7331,21 @@ function UI.cfgText(id, tbl, key, hint, size, width)
     if not b then b = imgui.new.char[size or 128](); UI.cfgTexts[id] = b; UI.setBuf(b, tbl[key] or '') end
     imgui.SetNextItemWidth(width or -1)
     if imgui.InputTextWithHint('##' .. id, hint or '', b, ffi.sizeof(b)) then tbl[key] = UI.getBuf(b); FBX.save() end
+    UI.focusRing()
 end
 UI.cfgInts = {}
-function UI.cfgSliderInt(id, tbl, key, mn, mx, fmt)
+function UI.cfgSliderInt(id, tbl, key, mn, mx, fmt, width)
     local b = UI.cfgInts[id] or imgui.new.int(0)
     UI.cfgInts[id] = b
     b[0] = math.floor(tonumber(tbl[key]) or mn)
-    imgui.SetNextItemWidth(-1)
+    imgui.SetNextItemWidth(width or S(240))
     if imgui.SliderInt('##' .. id, b, mn, mx, fmt or '%d') then tbl[key] = b[0]; FBX.save() end
+end
+-- Строка «подпись слева, элемент справа» с общей линией выравнивания
+function UI.rowLabel(s, x)
+    imgui.AlignTextToFramePadding()
+    UI.text(s)
+    imgui.SameLine(x or S(170))
 end
 
 local LETTERS = { 'Y', 'N', 'U', 'J', 'I', 'K', 'O', 'L', 'P', 'H', 'B', 'V', 'X', 'Z', 'C', 'R', 'E', 'Q', 'M', 'NUMPAD1', 'NUMPAD2', 'NUMPAD0', 'ADD', 'SUBTRACT' }
@@ -6746,36 +7466,40 @@ end
 local function spinner() return ('.'):rep(math.floor(imgui.GetTime() * 3) % 3 + 1) end
 
 function PG.ref()
-    UI.muted('Опишите ситуацию и задайте вопрос. ИИ объяснит ответ на основе законов, кодексов и Устава Advance RP Blue из базы и сошлётся на статьи. Ссылки проверяются по базе.')
-    imgui.InputTextMultiline('##refq', UI.buf.refq, ffi.sizeof(UI.buf.refq), imgui.ImVec2(-1, S(70)))
-    local q = U.trim(UI.getBuf(UI.buf.refq))
-    local busy = REF.ai and REF.ai.state == 'pending'
-    if UI.btn('Спросить##ref_go', q ~= '' and L.loaded and not busy, S(140), 0, 'primary', L.loaded and nil or 'База законов не загружена') then REF.ask(q) end
-    imgui.SameLine()
-    if UI.btn('Очистить##ref_clr', q ~= '' or REF.res ~= nil, S(110)) then UI.setBuf(UI.buf.refq, ''); REF.res, REF.ai = nil, nil; RAI.cancel() end
-    imgui.SameLine()
-    if UI.btn('Скопировать##ref_cp', REF.res ~= nil, S(130)) then imgui.SetClipboardText(REF.text()); UI.toastShow('Ответ скопирован.', 'ok') end
-    if #REF.history > 0 then
+    UI.box('ref_q', 'Вопрос по законам', function()
+        UI.hint('Опишите ситуацию. ИИ ответит по законам, кодексам и Уставу из базы и сошлётся на статьи; ссылки проверяются по базе.')
+        imgui.InputTextMultiline('##refq', UI.buf.refq, ffi.sizeof(UI.buf.refq), imgui.ImVec2(-1, S(64)))
+        UI.focusRing()
+        local q = U.trim(UI.getBuf(UI.buf.refq))
+        local busy = REF.ai and REF.ai.state == 'pending'
+        if UI.btn('Спросить##ref_go', q ~= '' and L.loaded and not busy, S(120), 0, 'primary', L.loaded and nil or 'База законов не загружена') then REF.ask(q) end
         imgui.SameLine()
-        imgui.SetNextItemWidth(-1)
-        if imgui.BeginCombo('##ref_hist', 'Прошлые вопросы') then
-            for i, h in ipairs(REF.history) do
-                if imgui.Selectable(U.cut(h, 90) .. '##rh' .. i, false) then UI.setBuf(UI.buf.refq, h); REF.ask(h) end
+        if UI.btn('Очистить##ref_clr', q ~= '' or REF.res ~= nil) then UI.setBuf(UI.buf.refq, ''); REF.res, REF.ai = nil, nil; RAI.cancel() end
+        imgui.SameLine()
+        if UI.btn('Скопировать ответ##ref_cp', REF.res ~= nil) then imgui.SetClipboardText(REF.text()); UI.toastShow('Ответ скопирован.', 'ok') end
+        if #REF.history > 0 then
+            imgui.SameLine()
+            imgui.SetNextItemWidth(-1)
+            if imgui.BeginCombo('##ref_hist', 'Прошлые вопросы') then
+                for i, h in ipairs(REF.history) do
+                    if imgui.Selectable(U.cut(h, 90) .. '##rh' .. i, false) then UI.setBuf(UI.buf.refq, h); REF.ask(h) end
+                    if imgui.IsItemHovered() and #h > 90 then UI.tipNow(h) end
+                end
+                imgui.EndCombo()
             end
-            imgui.EndCombo()
         end
-    end
-    if not cfg.ai.enabled then UI.colored(C.warn, 'ИИ выключен: показываются только выдержки из базы. Включить: страница «Настройки» → ИИ справочника.') end
+        if not cfg.ai.enabled then UI.colored(C.warn, 'ИИ выключен: показываются только выдержки из базы. Включить: Настройки → ИИ.') end
+    end)
     imgui.Spacing()
-    UI.cardBegin('##ref_ans', 0)
-    local r, ai = REF.res, REF.ai
-    if not r then
-        UI.muted('Например: «Двое свидетелей говорят, что Кирилл ударил Артура. Могу ли я арестовать Кирилла?»')
-        UI.muted('Или: «Можно ли обыскать машину, если водитель задержан?»')
-    else
+    UI.box('ref_ans', 'Ответ', function()
+        local r, ai = REF.res, REF.ai
+        if not r then
+            UI.muted('Например: «Двое свидетелей говорят, что Кирилл ударил Артура. Могу ли я арестовать Кирилла?»')
+            UI.muted('Или: «Можно ли обыскать машину, если водитель задержан?»')
+            return
+        end
         UI.bold(U.cut(REF.q, 240), C.accent)
         imgui.Spacing()
-        -- ответ ИИ
         if ai and ai.state == 'pending' then
             UI.pill('ИИ отвечает' .. spinner(), C.accent)
             imgui.SameLine()
@@ -6789,94 +7513,108 @@ function PG.ref()
             UI.text(ai.text)
             for _, u in ipairs(ai.unknown or {}) do UI.colored(C.bad, 'ИИ сослался на «' .. u .. '»: такой статьи в базе нет. Не опирайтесь на эту ссылку.') end
             if #(ai.cited or {}) == 0 then UI.colored(C.warn, 'В ответе нет ссылок на статьи из базы. Сверьте его с выдержками ниже.') end
-            UI.muted('Ответ ИИ — пояснение, а не решение за вас. Проверьте статьи по кнопкам ниже.')
+            UI.hint('Ответ ИИ — пояснение, а не решение за вас. Проверьте статьи по кнопкам ниже.')
         elseif ai then
             UI.pill('Без ИИ', C.muted)
             imgui.SameLine()
             UI.muted(tostring(ai.reason or 'ИИ недоступен') .. '. Ниже выдержки из базы законов.')
         end
-        -- статьи
         local list = (ai and ai.state == 'ai' and #(ai.cited or {}) > 0) and ai.cited or (r.refs or {})
         if #list > 0 then
-            UI.section(ai and ai.state == 'ai' and #(ai.cited or {}) > 0 and 'Статьи, на которые ссылается ответ' or 'Статьи из базы по вопросу')
+            imgui.Spacing()
+            UI.label(ai and ai.state == 'ai' and #(ai.cited or {}) > 0 and 'СТАТЬИ, НА КОТОРЫЕ ССЫЛАЕТСЯ ОТВЕТ' or 'СТАТЬИ ИЗ БАЗЫ ПО ВОПРОСУ')
             local labels = RAI.labels()
             for i, a in ipairs(list) do
                 if i > 20 then break end
                 imgui.PushIDInt(9100 + i)
-                if UI.btn(U.cut(labels[a] or (a.doc .. ' ' .. a.n), 30) .. '##ref_open', true, S(210)) then UI.showArticle(a) end
+                if UI.btn(U.cut(labels[a] or (a.doc .. ' ' .. a.n), 26) .. '##ref_open', true, S(190), 0, nil, labels[a]) then UI.showArticle(a) end
                 imgui.SameLine()
                 imgui.AlignTextToFramePadding()
-                UI.muted(U.cut(a.t:gsub('%s+', ' '), 120))
+                local t = a.t:gsub('%s+', ' ')
+                UI.muted(U.cut(t, 110))
+                if #t > 110 and imgui.IsItemHovered() then UI.tipNow(U.cut(t, 600)) end
                 imgui.PopID()
             end
         end
-        -- выдержки из базы: при ответе ИИ свёрнуты
-        local show = not (ai and ai.state == 'ai')
-        if not show then show = imgui.CollapsingHeader('Выдержки из базы законов (без ИИ)##ref_local') else UI.section('Выдержки из базы законов') end
-        if show then
+        imgui.Spacing()
+        local paras = function()
             for _, para in ipairs(r.paras or {}) do
                 if para:sub(-1) == ':' and not para:find('«', 1, true) then imgui.Spacing(); UI.bold(para) else UI.text(para) end
             end
         end
-    end
-    UI.cardEnd()
+        if ai and ai.state == 'ai' then UI.fold('ref_local', 'Выдержки из базы законов (без ИИ)', paras, false)
+        else UI.label('ВЫДЕРЖКИ ИЗ БАЗЫ ЗАКОНОВ'); paras() end
+    end, { solid = true })
 end
+
 -- Патруль ---------------------------------------------------------------------
 function PG.patrol()
     local pt = cfg.patrol
-    UI.cardBegin('##pat_state', S(96))
-    if PAT.active then
-        UI.pill('Патруль идёт', C.good)
+    UI.box('pat_state', nil, function()
+        if PAT.active then UI.pill('ПАТРУЛЬ ИДЁТ', C.good) else UI.pill('ВНЕ ПАТРУЛЯ', C.muted) end
         imgui.SameLine()
-        UI.text('Время: ' .. mmss(clock() - PAT.since) .. '   ·   Докладов 10-21: ' .. PAT.reports ..
-            (pt.auto_reports and ('   ·   Следующий через ' .. mmss((PAT.nextAt or clock()) - clock())) or ''))
-    else
-        UI.pill('Патруль не идёт', C.muted)
-        imgui.SameLine()
-        UI.muted(pt.auto_detect and 'При выезде из участка за рулём служебной машины хелпер спросит, начать ли патруль.' or 'Определение выключено: начинайте вручную.')
-    end
-    imgui.Spacing()
-    if UI.btn((PAT.active and 'Закончить патруль' or 'Начать патруль') .. '##pat_tg', pt.enabled, S(200), 0, PAT.active and 'danger' or 'primary', 'То же: /patrol') then PAT.toggle() end
-    if PAT.queue then imgui.SameLine(); UI.colored(C.warn, 'Доклад ждёт отправки: ' .. tostring(PAT.queue.why)) end
-    UI.cardEnd()
-
-    UI.section('Работа патруля')
-    UI.cfgCheck('Патруль включён##pt_on', pt, 'enabled')
-    UI.cfgCheck('Предлагать начать и закончить патруль##pt_det', pt, 'auto_detect', 'Начать: выезд из участка за рулём служебной машины. Закончить: 20 секунд стоите в участке за рулём или 3 минуты пешком в участке. Патруль меняется только после «Подтвердить» (Y). Выход из машины и повторная посадка патруль не прерывают.')
-    UI.cfgCheck('Доклад при начале патруля##pt_rs', pt, 'report_start')
-    UI.cfgCheck('Доклад о статусе каждые N минут##pt_ar', pt, 'auto_reports')
-    UI.muted('Интервал доклада, минут')
-    UI.cfgSliderInt('pt_int', pt, 'interval', 3, 60, '%d мин')
-    UI.cfgCheck('Доклад при завершении патруля##pt_re', pt, 'report_end')
-    UI.cfgCheck('Скриншот после доклада (/c 60 и F8)##pt_sc', pt, 'screens', 'После доклада в начале, после каждого 10-21 и в конце: /c 60 открывает службу точного времени, хелпер делает скриншот SA-MP (F8) и закрывает диалог. Сообщения хелпера на это время придерживаются.')
-    if pt.screens then UI.muted('Скриншоты: ' .. PAT.screensDir()) end
-    UI.muted('Доклады уходят, когда вы не печатаете, нет диалога и не идёт отыгровка. Если в тексте есть [пропуск], доклад вставляется в чат, чтобы вы его дописали.')
-
-    UI.section('Тексты докладов')
-    UI.muted('Метки: {unit} позывной, {zone} район, {rank} {name}. Коды из Устава МВД, п. 18.3: CODE 1-1 выезд с гаража, 10-21 статус, CODE 1-3 уход с патруля с причиной.')
-    UI.muted('Начало'); UI.cfgText('pt_t1', pt, 'start_text', '/r {unit}: CODE 1-1 ...', 256)
-    UI.muted('Статус'); UI.cfgText('pt_t2', pt, 'status_text', '/r {unit}: 10-21 ...', 256)
-    UI.muted('Завершение'); UI.cfgText('pt_t3', pt, 'end_text', '/r {unit}: CODE 1-3 ...', 256)
-    UI.muted('Как прозвучит: ' .. (RP.fill(pt.status_text, { zone = SA.zoneName() }) or pt.status_text))
-
-    UI.section('Участки')
-    for i, s in ipairs(PAT.STATIONS) do UI.kv(s.name, string.format('%.0f, %.0f', s.x, s.y), 160) end
-    local remove
-    for i, s in ipairs(pt.stations) do
-        imgui.PushIDInt(9300 + i)
-        UI.kv(tostring(s.name or ('Свой участок ' .. i)), string.format('%.0f, %.0f', tonumber(s.x) or 0, tonumber(s.y) or 0), 160)
-        imgui.SameLine()
-        if UI.btn('Удалить##st_rm', true) then remove = i end
-        imgui.PopID()
-    end
-    if remove then table.remove(pt.stations, remove); FBX.save() end
-    if UI.btn('Отметить мой участок здесь##st_add', #pt.stations < 10, 0, 0, nil, 'Если ваш участок не совпадает со стандартными координатами') then
-        local x, y, z = SA.myPos()
-        if x then
-            pt.stations[#pt.stations + 1] = { x = math.floor(x), y = math.floor(y), z = math.floor(z), name = SA.zoneName() }
-            FBX.save(); UI.toastShow('Участок добавлен.', 'ok')
+        imgui.AlignTextToFramePadding()
+        if PAT.active then
+            UI.text(mmss(clock() - PAT.since) .. '   ·   докладов 10-21: ' .. PAT.reports ..
+                (pt.auto_reports and ('   ·   следующий через ' .. mmss((PAT.nextAt or clock()) - clock())) or ''))
+        else
+            UI.muted(pt.auto_detect and 'Хелпер предложит начать патруль при выезде из участка за рулём служебной машины.' or 'Определение выключено: начинайте вручную.')
         end
-    end
+        if UI.btn((PAT.active and 'Закончить патруль' or 'Начать патруль') .. '##pat_tg', pt.enabled, S(190), 0, PAT.active and 'danger' or 'primary', 'То же: /patrol') then PAT.toggle() end
+        if PAT.queue then imgui.SameLine(); imgui.AlignTextToFramePadding(); UI.colored(C.warn, 'Доклад ждёт отправки: ' .. tostring(PAT.queue.why)) end
+    end)
+    imgui.Spacing()
+    UI.split(function(w)
+        UI.box('pat_set', 'Настройки патруля', function()
+            UI.cfgCheck('Патруль включён##pt_on', pt, 'enabled')
+            UI.cfgCheck('Предлагать начать и закончить##pt_det', pt, 'auto_detect', 'Начать: выезд из участка за рулём служебной машины. Закончить: 20 секунд в участке за рулём или 3 минуты пешком. Патруль меняется только после подтверждения (Y). Выход из машины и повторная посадка патруль не прерывают.')
+            UI.cfgCheck('Доклад при начале##pt_rs', pt, 'report_start')
+            UI.cfgCheck('Доклад о статусе каждые N минут##pt_ar', pt, 'auto_reports')
+            if pt.auto_reports then
+                UI.rowLabel('Интервал', S(140))
+                UI.cfgStep('pt_int', pt, 'interval', 3, 60, 1, '%d мин')
+            end
+            UI.cfgCheck('Доклад при завершении##pt_re', pt, 'report_end')
+            UI.cfgCheck('Скриншот после доклада (/c 60 и F8)##pt_sc', pt, 'screens', 'После доклада в начале, после каждого 10-21 и в конце: /c 60 открывает службу точного времени, хелпер делает скриншот SA-MP (F8) и закрывает диалог. Сообщения хелпера на это время придерживаются.')
+            if pt.screens then UI.hint('Папка: ' .. PAT.screensDir()) end
+            UI.hint('Доклады уходят, когда вы не печатаете, нет диалога и не идёт отыгровка.')
+        end, { w = w })
+    end, function(w)
+        UI.box('pat_txt', 'Тексты докладов', function()
+            UI.label('Начало (CODE 1-1)'); UI.cfgText('pt_t1', pt, 'start_text', '/r {unit}: CODE 1-1 ...', 256)
+            UI.label('Статус (10-21)'); UI.cfgText('pt_t2', pt, 'status_text', '/r {unit}: 10-21 ...', 256)
+            UI.label('Завершение (CODE 1-3)'); UI.cfgText('pt_t3', pt, 'end_text', '/r {unit}: CODE 1-3 ...', 256)
+            UI.hint('Метки: {unit} позывной, {zone} район, {rank} {name}. [пропуск] в тексте: доклад вставляется в чат, чтобы дописать.')
+            UI.label('КАК ПРОЗВУЧИТ')
+            UI.text(RP.fill(pt.status_text, { zone = SA.zoneName() }) or pt.status_text)
+        end, { w = w })
+    end, S(280))
+    imgui.Spacing()
+    UI.box('pat_st', 'Участки', function()
+        local x2 = S(220)
+        for _, s in ipairs(PAT.STATIONS) do
+            imgui.AlignTextToFramePadding(); UI.text(s.name); imgui.SameLine(x2); UI.muted(string.format('%.0f, %.0f', s.x, s.y))
+        end
+        local remove
+        for i, s in ipairs(pt.stations) do
+            imgui.PushIDInt(9300 + i)
+            imgui.AlignTextToFramePadding()
+            UI.text(tostring(s.name or ('Свой участок ' .. i)))
+            imgui.SameLine(x2)
+            UI.muted(string.format('%.0f, %.0f', tonumber(s.x) or 0, tonumber(s.y) or 0))
+            imgui.SameLine(x2 + S(130))
+            if UI.btn('Удалить##st_rm', true, 0, 0, 'danger') then remove = i end
+            imgui.PopID()
+        end
+        if remove then table.remove(pt.stations, remove); FBX.save() end
+        if UI.btn('Отметить мой участок здесь##st_add', #pt.stations < 10, 0, 0, nil, 'Если ваш участок не совпадает со стандартными координатами') then
+            local x, y, z = SA.myPos()
+            if x then
+                pt.stations[#pt.stations + 1] = { x = math.floor(x), y = math.floor(y), z = math.floor(z), name = SA.zoneName() }
+                FBX.save(); UI.toastShow('Участок добавлен.', 'ok')
+            end
+        end
+    end)
 end
 
 -- Отыгровки ---------------------------------------------------------------------
@@ -7043,41 +7781,243 @@ function PG.profile()
 end
 
 
--- Офицер: сводка и профиль (имя, звание, подразделение, позывной, пол) на одной странице
+-- Офицер: карточка профиля и статусов сверху, данные офицера и предпросмотр отыгровок рядом
+local function initials()
+    local pr = cfg.profile
+    local function first(s) return U.trim(s or ''):match('^[%z\1-\127\194-\244][\128-\191]*') or '' end
+    local s = first(pr.name) .. first(pr.surname)
+    return s ~= '' and U.upper and U.upper(s) or (s ~= '' and s or 'K')
+end
+
 function PG.officer()
     local pr = cfg.profile
-    UI.cardBegin('##off_state', S(78))
-    UI.bold((pr.rank ~= '' and (pr.rank .. ' ') or '') .. RP.fullName(), C.text)
-    UI.muted((D.DEPT_FULL[pr.dept] or pr.dept) .. ((pr.unit or '') ~= '' and ('   ·   позывной ' .. pr.unit) or ''))
-    if PAT.active then UI.pill('Патруль ' .. mmss(clock() - PAT.since), C.good) else UI.pill('Вне патруля', C.muted) end
-    imgui.SameLine()
-    UI.pill(cfg.gear.weapon and 'AutoWeapon: вкл' or 'AutoWeapon: выкл', cfg.gear.weapon and C.accent or C.muted)
-    imgui.SameLine()
-    UI.pill(cfg.gear.buy_on and 'AutoBuy: вкл' or 'AutoBuy: выкл', cfg.gear.buy_on and C.accent or C.muted)
-    imgui.SameLine()
-    if L.loaded then UI.pill('Законы: ' .. #L.flat, C.accent) else UI.pill('Законы не загружены', C.bad) end
-    UI.cardEnd()
-    UI.section('Данные офицера')
+    UI.box('off_card', nil, function()
+        local p = imgui.GetCursorScreenPos()
+        local sz = S(48)
+        local dl = imgui.GetWindowDrawList()
+        dl:AddRectFilled(p, imgui.ImVec2(p.x + sz, p.y + sz), UI.U32(C.accent2, 1), S(8))
+        local ini = initials()
+        if UI.fontTitle then imgui.PushFont(UI.fontTitle) end
+        local ts = imgui.CalcTextSize(ini)
+        dl:AddText(imgui.ImVec2(p.x + (sz - ts.x) / 2, p.y + (sz - ts.y) / 2), UI.U32(C.text, 1), ini)
+        if UI.fontTitle then imgui.PopFont() end
+        imgui.Dummy(imgui.ImVec2(sz, sz))
+        imgui.SameLine(0, S(12))
+        imgui.BeginGroup()
+        UI.bold((pr.rank ~= '' and (pr.rank .. ' ') or '') .. RP.fullName(), C.text)
+        UI.muted((D.DEPT_FULL[pr.dept] or pr.dept) .. ((pr.unit or '') ~= '' and ('   ·   позывной ' .. pr.unit) or ''))
+        UI.chips({
+            PAT.active and { 'Патруль ' .. mmss(clock() - PAT.since), C.good } or { 'Вне патруля', C.muted },
+            { cfg.gear.weapon and 'AutoWeapon: вкл' or 'AutoWeapon: выкл', cfg.gear.weapon and C.accent or C.muted },
+            { cfg.gear.buy_on and 'AutoBuy: вкл' or 'AutoBuy: выкл', cfg.gear.buy_on and C.accent or C.muted },
+            L.loaded and { 'Законы: ' .. #L.flat, C.accent } or { 'Законы не загружены', C.bad },
+        })
+        imgui.EndGroup()
+        if U.trim(pr.name) == '' then UI.colored(C.warn, 'Имя не заполнено: в отыгровках будет ник. Заполните поля ниже и нажмите «Сохранить».') end
+    end)
+    imgui.Spacing()
     PG.profile()
 end
 
--- Снаряжение: AutoWeapon (склад) и AutoBuy (24/7)
+-- Данные офицера (сохраняются кнопкой «Сохранить») и предпросмотр на несохранённых данных
+function PG.profile()
+    UI.split(function(w)
+        UI.box('pf_data', 'Данные офицера', function()
+            local half = (imgui.GetContentRegionAvail().x - S(8)) / 2
+            imgui.BeginGroup(); UI.dfield('Имя', 'pf_name', UI.buf.name, 'Иван', 0, half); imgui.EndGroup()
+            imgui.SameLine(0, S(8))
+            imgui.BeginGroup(); UI.dfield('Фамилия', 'pf_sur', UI.buf.surname, 'Петров', 0, half); imgui.EndGroup()
+            UI.hint('Пусто: в отыгровках будет ник без подчёркивания.')
+            UI.label('Звание')
+            UI.dfield(nil, 'pf_rank', UI.buf.rank, 'Сержант', 0, -S(128))
+            imgui.SameLine(0, S(8))
+            imgui.SetNextItemWidth(-1)
+            if imgui.BeginCombo('##pf_ranks', 'Из списка') then
+                local list = UI.edit.dept == 'ФБР' and D.RANKS.fbi or D.RANKS.police
+                for i, r in ipairs(list) do if imgui.Selectable(r .. '##rk' .. i, false) then UI.setBuf(UI.buf.rank, r); UI.dirty = true end end
+                imgui.EndCombo()
+            end
+            UI.dfield('Позывной для рации (Устав МВД 18.4)', 'pf_unit', UI.buf.unit, 'например L-12 или ADAM-3')
+            UI.label('Подразделение')
+            local depts = {}
+            for _, d in ipairs(D.DEPTS) do depts[#depts + 1] = { d, d, D.DEPT_FULL[d] } end
+            local nd = UI.segment('dept', depts, UI.edit.dept)
+            if nd ~= UI.edit.dept then UI.edit.dept = nd; UI.dirty = true end
+            UI.label('Пол персонажа (окончания в отыгровках)')
+            local sex = UI.segment('sex', { { false, 'Мужской' }, { true, 'Женский' } }, UI.buf.female[0] == true, S(110))
+            if sex ~= (UI.buf.female[0] == true) then UI.buf.female[0] = sex; UI.dirty = true end
+        end, { w = w })
+    end, function(w)
+        UI.box('pf_prev', 'Предпросмотр отыгровок', function()
+            local saved = U.copy(cfg.profile)
+            cfg.profile.name, cfg.profile.surname, cfg.profile.rank = U.trim(UI.getBuf(UI.buf.name)), U.trim(UI.getBuf(UI.buf.surname)), U.trim(UI.getBuf(UI.buf.rank))
+            cfg.profile.unit = U.trim(UI.getBuf(UI.buf.unit))
+            cfg.profile.dept, cfg.profile.female = UI.edit.dept, UI.buf.female[0]
+            local ok, err = pcall(function()
+                for _, l in ipairs({ 'Добрый день. {rank} {name}, {dept}.', '/me [завёл|завела] руки {target} за спину и защёлкнул{a} браслеты на запястьях',
+                    '/me [внёс|внесла] {target} в розыск', '/r {unit}: 10-21, патрулирую {zone}.' }) do
+                    UI.text(RP.fill(l, { target = 'Ивану Иванову', zone = 'Лос-Сантос' }) or '')
+                    imgui.Spacing()
+                end
+            end)
+            cfg.profile = saved
+            if not ok then error(err, 0) end
+            UI.hint('Показано с несохранёнными данными. Изменения вступят в силу после «Сохранить».')
+        end, { w = w, solid = true })
+    end, S(290), 0.55)
+end
+
+-- Снаряжение: склад (AutoWeapon) и магазин 24/7 (AutoBuy)
 function PG.gear()
     local g = cfg.gear
-    UI.section('AutoWeapon: склад')
-    UI.cfgCheck('Брать снаряжение на складе автоматически##g_w', g, 'weapon', 'Когда открывается склад (диалог 175), хелпер сам выбирает отмеченные пункты. Если бронежилет уже надет, его пункт пропускается. В чат ничего не пишется.')
-    if UI.btn('Выбрать оружие и бронежилет##g_pick', true, S(280), 0, 'primary') then W.gear[0] = true end
-    local names, chosen = UI.GEAR.names(), {}
-    for _, i in ipairs(UI.GEAR.picked()) do chosen[#chosen + 1] = names[i] or ('пункт ' .. i) end
-    UI.muted(#chosen > 0 and ('Выбрано: ' .. table.concat(chosen, ', ')) or 'Ничего не выбрано.')
+    UI.split(function(w)
+        UI.box('g_store', 'Склад · AutoWeapon', function()
+            UI.cfgCheck('Брать снаряжение автоматически##g_w', g, 'weapon', 'Когда открывается склад (диалог 175), хелпер сам выбирает отмеченные пункты. Если бронежилет уже надет, его пункт пропускается. В чат ничего не пишется.')
+            local names, chosen = UI.GEAR.names(), {}
+            for _, i in ipairs(UI.GEAR.picked()) do chosen[#chosen + 1] = { names[i] or ('пункт ' .. i), g.weapon and C.accent or C.muted } end
+            UI.label(#chosen > 0 and ('ВЫБРАНО: ' .. #chosen) or 'НИЧЕГО НЕ ВЫБРАНО')
+            if #chosen > 0 then UI.chips(chosen) end
+            if UI.btn('Выбрать оружие и бронежилет##g_pick', true, 0, 0, 'primary') then W.gear[0] = true end
+            UI.hint(next(g.names or {}) and 'Названия пунктов взяты со склада сервера.' or 'Названия уточнятся, когда вы откроете склад.')
+        end, { w = w })
+    end, function(w)
+        UI.box('g_shop', 'Магазин 24/7 · AutoBuy', function()
+            UI.cfgCheck('Покупать автоматически##g_b', g, 'buy_on', 'Когда вы открываете магазин 24/7, хелпер сам покупает отмеченное количество. Товары ищутся по названию в списке магазина. Каждый диалог магазина записывается в helper.log.')
+            imgui.Spacing()
+            for _, good in ipairs(UI.GEAR.GOODS) do
+                UI.rowLabel(good.title, S(150))
+                UI.cfgStep('g_buy_' .. good.key, g.buy, good.key, 0, 5, 1, '%d шт.')
+            end
+            UI.hint('0 шт.: товар не покупается. Когда всё куплено, магазин закрывается.')
+        end, { w = w })
+    end, S(290))
+end
 
-    UI.section('AutoBuy: магазин 24/7')
-    UI.cfgCheck('Покупать в 24/7 автоматически##g_b', g, 'buy_on', 'Когда вы открываете магазин 24/7, хелпер сам покупает отмеченное количество. Товары ищутся по названию в списке магазина. Каждый диалог магазина записывается в helper.log.')
-    for _, good in ipairs(UI.GEAR.GOODS) do
-        UI.muted(good.title)
-        UI.cfgSliderInt('g_buy_' .. good.key, g.buy, good.key, 0, 5, '%d шт.')
+-- Поиск по законам: строка поиска и фильтры сверху, список и текст статьи рядом
+local MODES = { { 'auto', 'Авто' }, { 'number', 'По номеру' }, { 'word', 'По словам' }, { 'phrase', 'Точная фраза' } }
+function PG.laws()
+    if not L.loaded then
+        UI.box('lw_none', 'База законов', function()
+            UI.colored(C.warn, 'База законов не загружена (' .. L.status .. ').')
+            if UI.btn('Загрузить базу##lw_dl', not N.state.laws.busy, 0, 0, 'primary') then N.checkLaws(true) end
+            UI.hint(N.state.laws.status)
+        end)
+        return
     end
-    UI.muted('0 шт.: товар не покупается. Покупка не трогает другие товары и закрывает магазин, когда всё куплено.')
+    UI.box('lw_search', nil, function()
+        UI.field(nil, 'lawq', UI.buf.lawq, 'Номер (8.1), слова (обыск без ордера), "фраза" или "УК 9.3"', 0, -S(312))
+        imgui.SameLine(0, S(6))
+        imgui.SetNextItemWidth(S(124))
+        if imgui.BeginCombo('##lw_mode', MODES[UI.lawMode][2]) then
+            for i, m in ipairs(MODES) do if imgui.Selectable(m[2] .. '##lm' .. i, UI.lawMode == i) then UI.lawMode = i end end
+            imgui.EndCombo()
+        end
+        imgui.SameLine(0, S(6))
+        imgui.SetNextItemWidth(-1)
+        local docTitle = UI.lawDoc == 0 and 'Все документы' or (L.docs[UI.lawDoc] and L.docs[UI.lawDoc].id or 'Все документы')
+        if imgui.BeginCombo('##lw_doc', docTitle) then
+            if imgui.Selectable('Все документы##ld0', UI.lawDoc == 0) then UI.lawDoc = 0 end
+            for i, d in ipairs(L.docs) do
+                if imgui.Selectable(d.id .. ' (' .. #(d.articles or {}) .. ')##ld' .. i, UI.lawDoc == i) then UI.lawDoc = i end
+                if imgui.IsItemHovered() and d.title then UI.tipNow(d.title) end
+            end
+            imgui.EndCombo()
+        end
+        local fav, ch = UI.toggle('Только избранное##lw_fav', UI.lawFav)
+        if ch then UI.lawFav = fav end
+        imgui.SameLine()
+        imgui.AlignTextToFramePadding()
+        UI.muted('   Без интернета · база ' .. L.version)
+    end)
+
+    local q = UI.getBuf(UI.buf.lawq)
+    local doc = UI.lawDoc > 0 and L.docs[UI.lawDoc] and L.docs[UI.lawDoc].id or nil
+    local key = q .. '|' .. UI.lawMode .. '|' .. tostring(doc) .. '|' .. tostring(UI.lawFav)
+    if UI.lawCache.key ~= key then
+        local list
+        if UI.lawFav then
+            list = {}
+            for _, a in ipairs(L.favorites()) do
+                if (not doc or a.doc == doc) and (q == '' or a.low:find(U.lower(q), 1, true) or a.n == q) then list[#list + 1] = a end
+            end
+        elseif q == '' and doc then
+            list = {}
+            for _, a in ipairs(L.flat) do if a.doc == doc and a.n ~= '0' then list[#list + 1] = a end end
+        else
+            list = L.query(q, MODES[UI.lawMode][1], doc, 200)
+        end
+        UI.lawCache.key, UI.lawCache.list = key, list
+        UI.lawSel = list[1]
+    end
+    local list = UI.lawCache.list
+    imgui.Spacing()
+    local h = math.max(S(260), imgui.GetContentRegionAvail().y)
+    UI.split(function(w)
+        UI.box('lw_list', nil, function()
+            if doc or q ~= '' or UI.lawFav then
+                if UI.btn('‹ Все документы##lw_back', true, 0, 0, nil, 'Сбросить поиск и фильтр') then
+                    UI.lawDoc, UI.lawMode, UI.lawFav, UI.lawSel = 0, 1, false, nil
+                    UI.setBuf(UI.buf.lawq, '')
+                    UI.lawCache.key = nil
+                end
+                imgui.SameLine()
+                imgui.AlignTextToFramePadding()
+                local d = UI.lawDoc > 0 and L.docs[UI.lawDoc]
+                UI.muted('найдено: ' .. #list)
+                if d then UI.label(d.title or d.id) end
+                imgui.Separator()
+            end
+            local cw = imgui.GetContentRegionAvail().x
+            local maxCh = math.max(20, math.floor(cw / S(7.2)))
+            if q == '' and not UI.lawFav and not doc then
+                UI.label('ДОКУМЕНТЫ В БАЗЕ')
+                for i, d in ipairs(L.docs) do
+                    local full = d.id .. '  ·  ' .. (d.title or '') .. ' (' .. #(d.articles or {}) .. ')'
+                    if imgui.Selectable(U.cut(full, maxCh) .. '##docsel' .. i, UI.lawDoc == i) then UI.lawDoc = i; UI.lawMode = 1; UI.setBuf(UI.buf.lawq, ''); UI.lawSel = nil end
+                    if imgui.IsItemHovered() and #full > maxCh then UI.tipNow(full) end
+                end
+                if #L.changes > 0 then
+                    imgui.Spacing(); UI.label('ПОСЛЕДНИЕ ИЗМЕНЕНИЯ')
+                    for _, c in ipairs(L.changes) do UI.muted(tostring(c)) end
+                end
+            elseif #list == 0 then
+                UI.muted('Ничего не найдено.')
+            else
+                for i, a in ipairs(list) do
+                    local t = a.t:gsub('%s+', ' ')
+                    local head = a.doc .. ' ' .. a.n .. (a.w and ('  ·  ' .. a.w .. ' ур.') or '') .. '  ·  '
+                    if imgui.Selectable(head .. U.cut(t, math.max(10, maxCh - #head / 2)) .. '##ls' .. i, UI.lawSel == a) then UI.lawSel = a end
+                    if imgui.IsItemHovered() then UI.tipNow(head .. U.cut(t, 300)) end
+                end
+            end
+        end, { w = w, fill = h, solid = true })
+    end, function(w)
+        UI.box('lw_view', nil, function()
+            local a = UI.lawSel
+            if not a then UI.muted('Выберите статью слева.') return end
+            if UI.fontTitle then imgui.PushFont(UI.fontTitle) end
+            UI.colored(C.accent, a.doc .. ' ' .. a.n)
+            if UI.fontTitle then imgui.PopFont() end
+            if a.ch ~= '' then UI.muted(a.ch) end
+            local chips = {}
+            if a.w then chips[#chips + 1] = { 'Розыск: ' .. tostring(a.w) .. ' ур.', C.warn } end
+            if a.f then chips[#chips + 1] = { 'Штраф: ' .. tostring(a.f) .. '$', C.accent } end
+            if #chips > 0 then UI.chips(chips) end
+            imgui.Spacing()
+            UI.text(a.t)
+            imgui.Spacing()
+            if UI.btn((L.isFav(a) and 'Убрать из избранного' or 'В избранное') .. '##lw_fv', true) then L.toggleFav(a); UI.lawCache.key = nil end
+            imgui.SameLine()
+            if UI.btn('Скопировать##lw_cp', true) then imgui.SetClipboardText(a.doc .. ' ' .. a.n .. '\n' .. a.t); UI.toastShow('Статья скопирована.', 'ok') end
+            if a.w and a.doc == 'УК' then
+                imgui.SameLine()
+                local sid = CTX.suspect and SA.connected(CTX.suspect.id) and CTX.suspect.id
+                if UI.btn('Розыск по статье##lw_su', sid ~= nil, 0, 0, 'primary', sid and ('Откроет умный розыск для ' .. U.rpName(CTX.suspect.nick)) or 'Подозреваемый не определён. Используйте /sus [id].') then
+                    UI.openSus(sid, a)
+                end
+            end
+        end, { w = w, fill = h, solid = true })
+    end, S(250), 0.44)
 end
 
 -- Биндер: слева список (свои бинды, все команды хелпера, фразы), справа редактор выбранного.
@@ -7122,37 +8062,42 @@ local function newBind()
     UI.dirty = true
 end
 
+local function group(title)
+    imgui.Spacing()
+    UI.label(title)
+end
+
 local function listPane()
     imgui.SetNextItemWidth(-1)
     imgui.InputTextWithHint('##bq', 'Поиск: /cuff, браслеты…', UI.bq, ffi.sizeof(UI.bq))
+    UI.focusRing()
     local q = U.lower(U.trim(UI.getBuf(UI.bq)))
-    imgui.Spacing()
-    UI.muted('МОИ БИНДЫ')
+    if UI.btn('+ Новый бинд##b_new', #UI.buf.binds < 50, -1, 0, 'primary') then newBind() end
+    group('МОИ БИНДЫ')
+    local any = false
     for i, e in ipairs(UI.buf.binds) do
         local name = UI.getBuf(e.cmd)
         if matches(q, name, UI.getBuf(e.lines)) then
+            any = true
             local keys = #(e.keys or {}) > 0 and ('   ' .. UI.FBX.keysName(e.keys)) or ''
-            row('/' .. name .. keys, 'bind', i)
+            row('/' .. name .. keys, 'bind', i, U.cut(UI.getBuf(e.lines):gsub('\n', '  ·  '), 200))
         end
     end
-    if #UI.buf.binds == 0 then UI.muted('пока нет') end
-    if UI.btn('+ Новый бинд##b_new', #UI.buf.binds < 50, -1, 0, 'primary') then newBind() end
-    imgui.Spacing()
-    UI.muted('КОМАНДЫ')
+    if not any then UI.muted(#UI.buf.binds == 0 and 'Пока нет своих биндов.' or 'Нет совпадений.') end
+    group('КОМАНДЫ')
     for _, cat in ipairs(D.CATS) do
         local first = true
         for _, k in ipairs(D.ALL) do
             local def = D.RP[k]
             if def.cat == cat.id and matches(q, k, def.title, def.desc) then
-                if first then imgui.TextDisabled(cat.title); first = false end
+                if first then UI.hint(cat.title); first = false end
                 row('/' .. k .. '   ' .. def.title, 'cmd', k, def.desc)
             end
         end
     end
-    imgui.Spacing()
-    UI.muted('ФРАЗЫ')
+    group('ФРАЗЫ')
     for _, p in ipairs(PHRASES) do
-        if matches(q, p.title) then row(p.title, 'phrase', p.key) end
+        if matches(q, p.title) then row(p.title, 'phrase', p.key, p.hint) end
     end
 end
 
@@ -7161,12 +8106,14 @@ local TAGS = 'Метки: {target} {tid} {name} {rank} {dept} {zone} {unit} {myi
 local function editBind(i)
     local e = UI.buf.binds[i]
     if not e then UI.muted('Выберите бинд слева или создайте новый.') return end
+    UI.label('КОМАНДА')
     imgui.AlignTextToFramePadding()
     UI.bold('/')
     imgui.SameLine(0, S(2))
-    imgui.SetNextItemWidth(S(220))
+    imgui.SetNextItemWidth(S(180))
     if imgui.InputText('##b_cmd', e.cmd, ffi.sizeof(e.cmd)) then UI.dirty = true end
-    imgui.SameLine()
+    UI.focusRing()
+    imgui.SameLine(0, S(12))
     if UI.btn('Удалить бинд##b_del', true, 0, 0, 'danger') then
         local name = UI.getBuf(e.cmd)
         UI.confirmAsk('Удалить /' .. name .. '?', 'Бинд исчезнет после «Сохранить».', function()
@@ -7179,10 +8126,10 @@ local function editBind(i)
     for _, p in ipairs(UI.checkBinds()) do UI.colored(C.bad, p) end
     local nm = UI.getBuf(e.cmd)
     if nm:find('_', 1, true) or #nm > 6 then UI.colored(C.warn, 'Совет: короткое имя без _ (2–6 латинских букв) легче набрать, например /pv или /mg.') end
-    UI.muted('Каждая строка уходит отдельно. Строка с / выполняется как команда, поэтому можно вызвать /cuff {tid}.')
+    UI.label('ТЕКСТ: КАЖДАЯ СТРОКА УХОДИТ ОТДЕЛЬНО, СТРОКА С / ВЫПОЛНЯЕТСЯ КАК КОМАНДА')
     UI.area('b_lines', e.lines, 150)
     UI.bindRowExtra(i, e)
-    UI.muted(TAGS)
+    UI.hint(TAGS)
     if UI.binderTagsHelp then UI.binderTagsHelp() end
 end
 
@@ -7193,41 +8140,41 @@ local function editCmd(k)
     UI.muted((def.rpOnly and 'Только отыгровка, без серверной команды' or ('Вызов: ' .. RP.usage(k))) .. (def.desc and ('   ·   ' .. def.desc) or ''))
     if def.dept then UI.colored(C.warn, 'Только для ' .. def.dept) end
     if def.verified == false then UI.colored(C.warn, 'Синтаксис команды на сервере не подтверждён: команда вставляется в строку чата, отправляете вы.') end
-    imgui.Spacing()
     UI.check('С отыгровкой##rp_on', UI.buf.rpOn[k])
     UI.area('rp_lines', UI.buf.rp[k], 170)
-    if UI.btn('Вернуть стандартный текст##rp_def', true) then UI.setBuf(UI.buf.rp[k], U.joinLines(def.lines)); UI.dirty = true end
-    imgui.SameLine()
     local avail = not def.dept or cfg.profile.dept == def.dept
     if UI.btn((def.verified == false and 'Вставить в чат' or 'Выполнить') .. '##rp_run', avail and not RP.busy and not UI.dirty, 0, 0, 'primary',
         UI.dirty and 'Сначала сохраните изменения' or nil) then
         W.menu[0] = false
         UI.openRun(k)
     end
-    UI.muted(TAGS)
+    imgui.SameLine()
+    if UI.btn('Вернуть стандартный текст##rp_def', true) then UI.setBuf(UI.buf.rp[k], U.joinLines(def.lines)); UI.dirty = true end
+    UI.hint(TAGS)
 end
 
 local function editPhrase(key)
     for _, p in ipairs(PHRASES) do
         if p.key == key then
             UI.bold(p.title)
-            UI.muted(p.hint)
+            UI.hint(p.hint)
             UI.area('ph_' .. key, UI.buf[key], 220)
         end
     end
 end
 
 function PG.binds()
-    imgui.BeginChild('##b_list', imgui.ImVec2(S(260), 0), true)
-    listPane()
-    imgui.EndChild()
-    imgui.SameLine()
-    UI.cardBegin('##b_edit', 0)
-    local s = UI.bsel
-    if s.kind == 'bind' then editBind(s.key)
-    elseif s.kind == 'phrase' then editPhrase(s.key)
-    else editCmd(s.key) end
-    UI.cardEnd()
+    local h = math.max(S(300), imgui.GetContentRegionAvail().y)
+    UI.split(function(w)
+        UI.box('b_list', nil, listPane, { w = w, fill = h, solid = true })
+    end, function(w)
+        UI.box('b_edit', nil, function()
+            local s = UI.bsel
+            if s.kind == 'bind' then editBind(s.key)
+            elseif s.kind == 'phrase' then editPhrase(s.key)
+            else editCmd(s.key) end
+        end, { w = w, fill = h, solid = true })
+    end, S(210), 0.36)
 end
 
 -- Радиальное меню -------------------------------------------------------------
@@ -7249,397 +8196,734 @@ end
 local okOpen, setNextOpen = pcall(function() return imgui.SetNextItemOpen end)
 if not okOpen then setNextOpen = nil end
 
-function PG.radial()
-    UI.muted('Держите колёсико мыши: наведите на папку — раскроется, на пункт — отпустите. Отпустили в центре — меню закрыто. ПКМ на игроке + колёсико: окно действий с ним.')
-    UI.cfgCheck('Радиальное меню включено##rad_enable', cfg.radial, 'enabled')
-    local entries = UI.radialConfig()
-    -- предпросмотр
+-- Предпросмотр колеса: сектор под мышью подсвечивается, полное название в подсказке
+local function radialPreview(entries)
     local p = imgui.GetCursorScreenPos()
+    local w = imgui.GetContentRegionAvail().x
+    local R = math.max(S(70), math.min(S(116), w / 2 - S(8)))
+    local r0 = R * 0.32
+    local cx, cy = p.x + w / 2, p.y + R + S(6)
     local dl = imgui.GetWindowDrawList()
-    local cx, cy, r = p.x + S(145), p.y + S(125), S(100)
-    dl:AddCircle(imgui.ImVec2(cx, cy), r, U32(C.border, 1), 64, S(2))
-    dl:AddCircle(imgui.ImVec2(cx, cy), S(30), U32(C.border, 1), 32, S(1))
-    for i, e in ipairs(entries) do
-        local a = (i - 1) * math.pi * 2 / math.max(1, #entries) - math.pi / 2
-        local edge = a - math.pi / math.max(1, #entries)
-        dl:AddLine(imgui.ImVec2(cx + math.cos(edge) * S(30), cy + math.sin(edge) * S(30)), imgui.ImVec2(cx + math.cos(edge) * r, cy + math.sin(edge) * r), U32(C.border, 1), 1)
-        local title = U.cut(tostring(e.title), 16)
-        local size = imgui.CalcTextSize(title)
-        dl:AddText(imgui.ImVec2(cx + math.cos(a) * r * 0.66 - size.x / 2, cy + math.sin(a) * r * 0.66 - size.y / 2), U32(C.text, 1), title)
+    local n = math.max(1, #entries)
+    local step = math.pi * 2 / n
+    local m = imgui.GetMousePos()
+    local dx, dy = m.x - cx, m.y - cy
+    local dist = math.sqrt(dx * dx + dy * dy)
+    local hover
+    if dist > r0 and dist < R and imgui.IsWindowHovered() then
+        local rel = (math.atan2(dy, dx) + math.pi / 2 + step / 2) % (math.pi * 2)
+        hover = math.floor(rel / step) + 1
     end
-    imgui.Dummy(imgui.ImVec2(S(300), S(255)))
-    if imgui.CollapsingHeader('Как записывать команды##rad_help') then
-        UI.muted('/cuff {tid} — команда как набранная в чате; {tid} — игрок в прицеле, подозреваемый рядом или ближайший (с сообщением).')
-        UI.muted('rp:greet, rp:badge, rp:askdocs — отыгровка без серверной команды. run:takelic — окно команды с подставленным ID.')
-        UI.muted('fn:lock — замок машины, fn:patrol — начать или закончить патруль. Текст с [пропусками] вставляется в чат.')
-        UI.muted('Метки {zone} и {unit} подставляются как в отыгровках.')
-    end
-    local remove, moveUp
+    dl:AddCircleFilled(imgui.ImVec2(cx, cy), R, UI.U32(C.bg, 0.92), 64)
     for i, e in ipairs(entries) do
-        local eid = entryId(e)
-        imgui.PushIDInt(18000 + eid)
-        local kind = radialKind(e)
-        -- только что добавленный пункт сразу раскрыт
-        if UI.radOpenNext == e and setNextOpen then setNextOpen(true); UI.radOpenNext = nil end
-        -- ### : ID строится только из суффикса, название можно менять без сворачивания
-        if imgui.CollapsingHeader(tostring(e.title) .. '###entry') then
-            UI.cfgText('rad_title_' .. eid, e, 'title', 'Название', 64)
-            imgui.SetNextItemWidth(S(220))
-            local kindTitle = 'Команда'
-            for _, k in ipairs(RADIAL_KIND) do if k[1] == kind then kindTitle = k[2] end end
-            if imgui.BeginCombo('##rad_kind', kindTitle) then
-                for j, k in ipairs(RADIAL_KIND) do
-                    if imgui.Selectable(k[2] .. '##rk' .. j, kind == k[1]) and kind ~= k[1] then
-                        e.items, e.source, e.binds, e.command = nil, nil, nil, nil
-                        if k[1] == 'items' then e.items = {} elseif k[1] == 'command' then e.command = ''
-                        elseif k[1] == 'binds' then e.binds = true else e.source = k[1] end
-                        UI.cfgTexts = {}; FBX.save()
-                    end
-                end
-                imgui.EndCombo()
-            end
-            -- тип мог смениться в списке выше: дальше рисуем уже по новому
-            kind = radialKind(e)
-            if kind == 'command' then
-                UI.cfgText('rad_cmd_' .. eid, e, 'command', '/команда {tid}, rp:greet, fn:patrol', 256)
-            elseif kind == 'items' then
-                local rm
-                for j, child in ipairs(e.items or {}) do
-                    imgui.PushIDInt(j)
-                    imgui.SetNextItemWidth(S(180))
-                    UI.cfgText('rad_ct_' .. eid .. '_' .. j, child, 'title', 'Название', 64, S(180))
-                    imgui.SameLine()
-                    UI.cfgText('rad_cc_' .. eid .. '_' .. j, child, 'command', '/команда {tid}', 256, -S(90))
-                    imgui.SameLine()
-                    if UI.btn('Удалить##rm', true, S(80)) then rm = j end
-                    imgui.PopID()
-                end
-                if rm then table.remove(e.items, rm); UI.cfgTexts = {}; FBX.save() end
-                if UI.btn('Добавить подпункт##add', #e.items < 12) then e.items[#e.items + 1] = { title = 'Новый пункт', command = '' }; UI.cfgTexts = {}; FBX.save() end
-            elseif kind == 'binds' then
-                UI.muted('Показывает бинды с галочкой «В радиальном меню» (страница «Биндер»).')
-            else
-                UI.muted('Фразы берутся из списка «' .. (kind == 'radio' and 'Фразы рации' or 'Мегафон') .. '» на странице «Биндер».')
-            end
-            if UI.btn('Выше##up', i > 1) then moveUp = i end
-            imgui.SameLine()
-            if UI.btn('Удалить пункт##del', true, 0, 0, 'danger') then remove = i end
+        local a = (i - 1) * step - math.pi / 2
+        local hv = UI.anim('rpv' .. i, hover == i and 1 or 0, 0.12)
+        if hv > 0.01 then
+            dl:PathClear()
+            dl:PathArcTo(imgui.ImVec2(cx, cy), (R + r0) / 2, a - step / 2, a + step / 2, 24)
+            dl:PathStroke(UI.U32(C.accent2, 0.75 * hv), false, R - r0)
         end
-        imgui.PopID()
+        local edge = a - step / 2
+        dl:AddLine(imgui.ImVec2(cx + math.cos(edge) * r0, cy + math.sin(edge) * r0), imgui.ImVec2(cx + math.cos(edge) * R, cy + math.sin(edge) * R), UI.U32(C.border, 1), 1)
+        local title = U.cut(tostring(e.title), n > 8 and 10 or 14)
+        local size = imgui.CalcTextSize(title)
+        local tr = (R + r0) / 2
+        dl:AddText(imgui.ImVec2(cx + math.cos(a) * tr - size.x / 2, cy + math.sin(a) * tr - size.y / 2), UI.U32(C.text, 1), title)
     end
-    if moveUp then entries[moveUp], entries[moveUp - 1] = entries[moveUp - 1], entries[moveUp]; UI.cfgTexts = {}; FBX.save() end
-    if remove then table.remove(entries, remove); UI.cfgTexts = {}; FBX.save() end
-    imgui.Spacing()
-    if UI.btn('Добавить подменю##rad_add', #entries < 12) then entries[#entries + 1] = { title = 'Новое меню', items = {} }; UI.radOpenNext = entries[#entries]; UI.cfgTexts = {}; FBX.save() end
-    imgui.SameLine()
-    if UI.btn('Добавить команду##rad_cmd', #entries < 12) then entries[#entries + 1] = { title = 'Команда', command = '' }; UI.radOpenNext = entries[#entries]; UI.cfgTexts = {}; FBX.save() end
-    imgui.SameLine()
-    if UI.btn('Вернуть стандартное меню##rad_def', true, 0, 0, 'danger') then
-        UI.confirmAsk('Вернуть стандартное радиальное меню?', 'Ваши пункты будут заменены стандартными.', function()
-            cfg.radial.entries = D.radialDefault(); UI.cfgTexts = {}; FBX.save()
-        end)
+    dl:AddCircle(imgui.ImVec2(cx, cy), R, UI.U32(C.border, 1), 64, S(1.5))
+    dl:AddCircleFilled(imgui.ImVec2(cx, cy), r0, UI.U32(C.card, 1), 32)
+    dl:AddCircle(imgui.ImVec2(cx, cy), r0, UI.U32(C.border, 1), 32, 1)
+    imgui.Dummy(imgui.ImVec2(w, R * 2 + S(12)))
+    if hover and entries[hover] then
+        local e = entries[hover]
+        local kind = radialKind(e)
+        local what = kind == 'command' and (U.trim(e.command or '') ~= '' and e.command or 'команда не задана')
+            or kind == 'items' and (#(e.items or {}) .. ' подпунктов') or kind == 'binds' and 'ваши бинды' or kind == 'radio' and 'фразы рации' or 'фразы мегафона'
+        UI.tipNow(tostring(e.title) .. '\n' .. what)
     end
 end
 
--- Служебные функции ---------------------------------------------------------
-function PG.fbi()
-    local c = cfg.fbi
-    UI.muted('Служебные функции. Каждую можно включить отдельно, изменения применяются сразу, без перезагрузки.')
-    UI.cfgCheck('Служебные функции включены (команды, чат, клавиши)##fb_on', c, 'enabled')
-    UI.section('Рация')
-    UI.muted('Тег для /r (например [LSPD]). Пусто: /r работает как обычно.')
-    UI.cfgText('fb_rtag', c, 'rtag', '[тег]', 32, S(200))
-    UI.muted('Тег для /f')
-    UI.cfgText('fb_ftag', c, 'ftag', '[тег]', 32, S(200))
-    UI.cfgCheck('Режим рабочего: /f как /f 1, скрываются [F] гражданских работ, /find сам выбирает организацию##fb_wm', c, 'work_mode')
-    UI.section('Скрывать в чате')
-    UI.cfgCheck('[F] общая волна##fb_hf', c, 'hide_f'); imgui.SameLine()
-    UI.cfgCheck('[G] спецрация##fb_hg', c, 'hide_g'); imgui.SameLine()
-    UI.cfgCheck('[P] партии##fb_hp', c, 'hide_p')
-    UI.cfgCheck('Объявления /ad##fb_ha', c, 'hide_ad'); imgui.SameLine()
-    UI.cfgCheck('Сообщения столовой##fb_hfood', c, 'hide_food')
-    UI.section('Автоматизация')
-    UI.cfgCheck('Auto /ad: повторять своё объявление после публикации##fb_aad', c, 'auto_ad')
-    UI.cfgCheck('Auto /up: поднимать объявление и закрывать окна очереди##fb_aup', c, 'auto_up')
-    UI.cfgCheck('AutoReset: /reset, когда маска скрыла вас на GPS##fb_ar', c, 'autoreset')
-    UI.cfgCheck('Снимать наушники (/head)##fb_head', c, 'head_auto')
-    UI.cfgCheck('AutoBenz: подтверждать заправку##fb_ab', c, 'autobenz')
-    UI.cfgCheck('Считать чистый онлайн в окне статистики##fb_onl', c, 'online')
-    UI.cfgCheck('Данные диспетчера: метка по делу на клавишу 3 в машине##fb_dsp', c, 'dispatch')
-    UI.cfgCheck('Кнопка FIX в радиальном меню (в пункте «Мои бинды»)##fb_fix', c, 'fix_radial')
-    UI.cfgCheck('Круиз-контроль: «=» включить, W запомнить скорость, S выключить##fb_cr', c, 'cruise')
-    UI.section('Телефон')
-    UI.cfgCheck('Отвечать на вызов клавишами##fb_pk', c, 'phone_keys')
-    UI.muted('Принять')
-    imgui.SameLine(); keyCombo('fb_py', c, 'phone_yes', 'phone_no')
-    imgui.SameLine(); UI.muted('  Отклонить')
-    imgui.SameLine(); keyCombo('fb_pn', c, 'phone_no', 'phone_yes')
-    UI.cfgCheck('С отыгровкой (как /pp и /hh)##fb_prp', c, 'phone_rp')
-    UI.cfgCheck('При отклонении: SMS-автоответ, если номер звонящего известен##fb_sms', c, 'sms_reply')
-    UI.muted('Последний номер SMS: ' .. (c.last_sms ~= '' and c.last_sms or 'нет') .. '   Звонивший: ' .. (c.last_caller ~= '' and c.last_caller or 'неизвестен'))
-    for _, k in ipairs(UI.keyConflicts and UI.keyConflicts() or {}) do UI.colored(C.bad, k) end
-    UI.section('Окна')
-    UI.cfgCheck('Инфо-виджет (ник, район, квадрат, время), /vid##fb_iw', c, 'info_widget')
-    UI.cfgCheck('Контакты онлайн, /ts2##fb_cs', c, 'contacts_show')
-    UI.muted('Ники контактов через запятую (Имя_Фамилия)')
-    local cb = UI.cfgTexts.fb_ct
-    if not cb then cb = imgui.new.char[1024](); UI.cfgTexts.fb_ct = cb; UI.setBuf(cb, table.concat(c.contacts, ', ')) end
-    imgui.SetNextItemWidth(-1)
-    if imgui.InputTextWithHint('##fb_ct', 'Ivan_Petrov, Anna_Smith', cb, ffi.sizeof(cb)) then
-        local list = {}
-        for n in UI.getBuf(cb):gmatch('[^,;%s]+') do list[#list + 1] = n end
-        c.contacts = list; FBX.save()
-    end
-    UI.section('Поиск дома')
-    UI.kv('База домов', FBX.houses and 'загружена' or (F.exists(FBX.HOUSES_PATH) and 'есть файл' or 'не загружена'))
-    if UI.btn('Загрузить базу домов##fb_hdl', true) then FBX.downloadHouses() end
-    UI.muted('/tsh [номер]: метка на дом. /rb: убрать метку.')
-    UI.section('Команды')
-    UI.muted('/incar /inmoto /cf /gg /mir /unc /nar /pt /ot /cs /css /fo /foff /cam /cams /ton /alp /alpt /alps /meg /megsp /krik /dor /pr /pk /pn /rhelp /fhelp /mon /moff /hh /pp /уд /sos /qsmcar /pg /biz /ja /jt /sm /hist /ln /cc /rc /iidd /ii /tsh /rb /vid /ts2 /clc /hexit /ук. Тексты: страница «Биндер».')
+function PG.radial()
+    local entries = UI.radialConfig()
+    UI.split(function(w)
+        UI.box('rad_prev', 'Предпросмотр', function()
+            UI.cfgCheck('Радиальное меню включено##rad_enable', cfg.radial, 'enabled')
+            radialPreview(entries)
+            UI.hint('Держите колёсико мыши: наведите на папку, она раскроется; на пункт, затем отпустите. Отпустили в центре: меню закрыто. ПКМ на игроке + колёсико: действия с ним.')
+            UI.fold('rad_help', 'Как записывать команды', function()
+                UI.hint('/cuff {tid} — команда как в чате; {tid} — игрок в прицеле, подозреваемый рядом или ближайший (с сообщением).')
+                UI.hint('rp:greet, rp:badge, rp:askdocs — отыгровка без серверной команды. run:takelic — окно команды с подставленным ID.')
+                UI.hint('fn:lock — замок машины, fn:patrol — начать или закончить патруль. Текст с [пропусками] вставляется в чат.')
+                UI.hint('Метки {zone} и {unit} подставляются как в отыгровках.')
+            end)
+        end, { w = w })
+    end, function(w)
+        UI.box('rad_edit', 'Пункты меню · ' .. #entries .. ' из 12', function()
+            local remove, moveUp
+            for i, e in ipairs(entries) do
+                local eid = entryId(e)
+                imgui.PushIDInt(18000 + eid)
+                local kind = radialKind(e)
+                -- только что добавленный пункт сразу раскрыт
+                if UI.radOpenNext == e and setNextOpen then setNextOpen(true); UI.radOpenNext = nil end
+                -- ### : ID строится только из суффикса, название можно менять без сворачивания
+                if imgui.CollapsingHeader(tostring(e.title) .. '###entry') then
+                    UI.label('Название')
+                    UI.cfgText('rad_title_' .. eid, e, 'title', 'Название', 64)
+                    UI.label('Тип')
+                    imgui.SetNextItemWidth(S(200))
+                    local kindTitle = 'Команда'
+                    for _, k in ipairs(RADIAL_KIND) do if k[1] == kind then kindTitle = k[2] end end
+                    if imgui.BeginCombo('##rad_kind', kindTitle) then
+                        for j, k in ipairs(RADIAL_KIND) do
+                            if imgui.Selectable(k[2] .. '##rk' .. j, kind == k[1]) and kind ~= k[1] then
+                                e.items, e.source, e.binds, e.command = nil, nil, nil, nil
+                                if k[1] == 'items' then e.items = {} elseif k[1] == 'command' then e.command = ''
+                                elseif k[1] == 'binds' then e.binds = true else e.source = k[1] end
+                                UI.cfgTexts = {}; FBX.save()
+                            end
+                        end
+                        imgui.EndCombo()
+                    end
+                    kind = radialKind(e)
+                    if kind == 'command' then
+                        UI.label('Команда')
+                        UI.cfgText('rad_cmd_' .. eid, e, 'command', '/команда {tid}, rp:greet, fn:patrol', 256)
+                    elseif kind == 'items' then
+                        local rm
+                        local tw = math.max(S(110), (imgui.GetContentRegionAvail().x - S(90)) * 0.4)
+                        for j, child in ipairs(e.items or {}) do
+                            imgui.PushIDInt(j)
+                            UI.cfgText('rad_ct_' .. eid .. '_' .. j, child, 'title', 'Название', 64, tw)
+                            imgui.SameLine(0, S(6))
+                            UI.cfgText('rad_cc_' .. eid .. '_' .. j, child, 'command', '/команда {tid}', 256, -S(84))
+                            imgui.SameLine(0, S(6))
+                            if UI.btn('Удалить##rm', true, -1, 0, 'danger') then rm = j end
+                            imgui.PopID()
+                        end
+                        if rm then table.remove(e.items, rm); UI.cfgTexts = {}; FBX.save() end
+                        if UI.btn('+ Подпункт##add', #e.items < 12) then e.items[#e.items + 1] = { title = 'Новый пункт', command = '' }; UI.cfgTexts = {}; FBX.save() end
+                    elseif kind == 'binds' then
+                        UI.hint('Показывает бинды с переключателем «В радиальном меню» (страница «Биндер»).')
+                    else
+                        UI.hint('Фразы берутся из списка «' .. (kind == 'radio' and 'Рация' or 'Мегафон') .. '» на странице «Биндер».')
+                    end
+                    if UI.btn('Выше##up', i > 1) then moveUp = i end
+                    imgui.SameLine()
+                    if UI.btn('Удалить пункт##del', true, 0, 0, 'danger') then remove = i end
+                    imgui.Spacing()
+                end
+                imgui.PopID()
+            end
+            if moveUp then entries[moveUp], entries[moveUp - 1] = entries[moveUp - 1], entries[moveUp]; UI.cfgTexts = {}; FBX.save() end
+            if remove then table.remove(entries, remove); UI.cfgTexts = {}; FBX.save() end
+            imgui.Spacing()
+            if UI.btn('+ Подменю##rad_add', #entries < 12, 0, 0, 'primary') then entries[#entries + 1] = { title = 'Новое меню', items = {} }; UI.radOpenNext = entries[#entries]; UI.cfgTexts = {}; FBX.save() end
+            imgui.SameLine()
+            if UI.btn('+ Команда##rad_cmd', #entries < 12) then entries[#entries + 1] = { title = 'Команда', command = '' }; UI.radOpenNext = entries[#entries]; UI.cfgTexts = {}; FBX.save() end
+            imgui.SameLine()
+            if UI.btn('Стандартное меню##rad_def', true, 0, 0, 'danger', 'Вернуть стандартные пункты вместо ваших') then
+                UI.confirmAsk('Вернуть стандартное радиальное меню?', 'Ваши пункты будут заменены стандартными.', function()
+                    cfg.radial.entries = D.radialDefault(); UI.cfgTexts = {}; FBX.save()
+                end)
+            end
+        end, { w = w })
+    end, S(260), 0.42)
 end
 
-function PG.notes()
-    UI.muted('Заметки хранятся в настройках и сохраняются сами.')
-    local b = UI.cfgTexts.notes
-    if not b then b = imgui.new.char[8192](); UI.cfgTexts.notes = b; UI.setBuf(b, cfg.notes or '') end
-    if imgui.InputTextMultiline('##notes', b, ffi.sizeof(b), imgui.ImVec2(-1, -1)) then cfg.notes = UI.getBuf(b); FBX.save() end
-end
+-- Служебные функции: вкладки по задачам ------------------------------------------
+UI.fbiTab = UI.fbiTab or 'radio'
+local FBI_TABS = { { 'radio', 'Рация' }, { 'chat', 'Фильтры чата' }, { 'auto', 'Автоматизация' }, { 'phone', 'Телефон' }, { 'widgets', 'Виджеты' }, { 'house', 'Дом и команды' } }
 
--- Настройки -------------------------------------------------------------------
-UI.themeBufs = {}
-function PG.settings()
-    UI.section('Общие')
-    UI.muted('Пауза между строками отыгровки, мс (стандартно 800)')
-    imgui.SetNextItemWidth(-1)
-    if imgui.SliderInt('##st_delay', UI.buf.delay, 500, 1300, '%d мс') then UI.dirty = true end
-    UI.cfgCheck('Переносить длинный текст на несколько строк (/wrap)##st_wrap', cfg.fbi, 'extra_msg', 'Сообщение длиннее лимита сервера делится на части с «...» в конце и в начале: обычный чат, /me, /do, /r, /f, /m, /s, /n. Части идут с паузой антифлуда. Команда /wrap включает и выключает.')
-    if cfg.fbi.extra_msg then
-        UI.muted('Длина одной части, символов (с командой)')
-        UI.cfgSliderInt('st_wraplen', cfg.fbi, 'extra_len', 60, 120)
-    end
-    UI.muted('Масштаб интерфейса (шрифт применится после перезапуска скрипта)')
-    imgui.SetNextItemWidth(-1)
-    if imgui.SliderFloat('##st_scale', UI.buf.scale, 0.7, 1.8, '%.2f') then UI.dirty = true end
-    UI.check('Скрывать строки чата с этими словами##st_flt', UI.buf.filterOn)
-    UI.area('filter', UI.buf.filter, 60)
-
-    UI.section('Клавиши')
-    UI.muted('Радиальное меню на колёсике включается на странице «Радиальное меню».')
-    UI.muted('Показать или скрыть курсор (также команда /cursor)')
-    imgui.SetNextItemWidth(S(160))
-    if imgui.BeginCombo('##st_ckey', UI.edit.cursorKey) then
-        for i, k in ipairs(UI.KEYS) do
-            if imgui.Selectable(k .. '##ck' .. i, UI.edit.cursorKey == k) then UI.edit.cursorKey = k; UI.dirty = true end
+local LETTERS = { 'Y', 'N', 'U', 'J', 'I', 'K', 'O', 'L', 'P', 'H', 'B', 'V', 'X', 'Z', 'C', 'R', 'E', 'Q', 'M', 'NUMPAD1', 'NUMPAD2', 'NUMPAD0', 'ADD', 'SUBTRACT' }
+local function keyCombo(id, tbl, key, other)
+    imgui.SetNextItemWidth(S(130))
+    if imgui.BeginCombo('##' .. id, tostring(tbl[key])) then
+        for i, k in ipairs(LETTERS) do
+            if k ~= tbl[other] and imgui.Selectable(k .. '##' .. id .. i, tbl[key] == k) then tbl[key] = k; FBX.save() end
         end
         imgui.EndCombo()
     end
+end
 
-    UI.section('Оформление')
-    UI.muted('Цвета применяются сразу. Размер шрифта и окон: «Масштаб интерфейса» выше.')
-    for _, t in ipairs(UI.THEME) do
-        local key = t[1]
-        local fb = UI.themeBufs[key]
-        if not fb then fb = imgui.new.float[3](); UI.themeBufs[key] = fb end
-        local col = C[key]
-        fb[0], fb[1], fb[2] = col.x, col.y, col.z
-        if imgui.ColorEdit3(t[2] .. '##th_' .. key, fb, imgui.ColorEditFlags.NoInputs) then
-            cfg.ui.theme[key] = { fb[0], fb[1], fb[2] }
-            UI.applyTheme(); UI.applyStyle(); FBX.save()
-        end
-    end
-    if UI.btn('Вернуть стандартные цвета##th_def', next(cfg.ui.theme) ~= nil) then
-        cfg.ui.theme = {}
-        UI.applyTheme(); UI.applyStyle(); FBX.save()
-    end
-    UI.section('ИИ справочника')
-    local was = cfg.ai.enabled
-    UI.cfgCheck('Отвечать на вопросы через ИИ##st_ai', cfg.ai, 'enabled', 'Выключено: справочник показывает только выдержки из базы законов.')
-    if was and not cfg.ai.enabled then RAI.cancel(); if REF.ai and REF.ai.state == 'pending' then REF.ai = { state = 'off', reason = 'ИИ выключен в настройках' } end end
-    UI.muted('Бесплатному сервису ИИ уходят только текст вашего вопроса и подобранные статьи из базы. Чат, ники окружающих, пароль и настройки не отправляются. Такие сервисы могут хранить запросы.')
-    for i, p in ipairs(AIP.all()) do
-        imgui.PushIDInt(1000 + i)
-        local s = AIP.st(p)
-        local ok, w = AIP.available(p)
-        local on = not cfg.ai.disabled[p.name]
-        if UI.btn(on and 'Вкл##pt' or 'Выкл##pt', true, S(60), 0, on and 'primary' or nil) then
-            cfg.ai.disabled[p.name] = on and true or nil; FBX.save()
-        end
+function PG.fbi()
+    local c = cfg.fbi
+    UI.box('fb_master', nil, function()
+        UI.cfgCheck('Служебные функции включены##fb_on', c, 'enabled', 'Команды, обработка чата и клавиши служебных функций. Каждую функцию ниже можно включить отдельно; изменения применяются сразу.')
         imgui.SameLine()
         imgui.AlignTextToFramePadding()
-        UI.text(p.name)
+        UI.muted(c.enabled and '   применяется сразу, без перезагрузки' or '   выключено: функции ниже не работают')
+        UI.fbiTab = UI.tabs('fbi', FBI_TABS, UI.fbiTab)
+        local t = UI.fbiTab
+        if t == 'radio' then
+            UI.rowLabel('Тег для /r', S(150)); UI.cfgText('fb_rtag', c, 'rtag', '[LSPD]', 32, S(180))
+            UI.rowLabel('Тег для /f', S(150)); UI.cfgText('fb_ftag', c, 'ftag', '[тег]', 32, S(180))
+            UI.hint('Пусто: /r и /f работают как обычно.')
+            UI.cfgCheck('Режим рабочего##fb_wm', c, 'work_mode', '/f работает как /f 1, скрываются [F] гражданских работ, /find сам выбирает организацию.')
+        elseif t == 'chat' then
+            UI.label('СКРЫВАТЬ В ЧАТЕ')
+            local half = S(230)
+            UI.cfgFlag('[F] общая волна##fb_hf', c, 'hide_f'); imgui.SameLine(half); UI.cfgFlag('[G] спецрация##fb_hg', c, 'hide_g')
+            UI.cfgFlag('[P] партии##fb_hp', c, 'hide_p'); imgui.SameLine(half); UI.cfgFlag('Объявления /ad##fb_ha', c, 'hide_ad')
+            UI.cfgFlag('Сообщения столовой##fb_hfood', c, 'hide_food')
+            UI.hint('Свой список слов для скрытия: Настройки → Основные.')
+        elseif t == 'auto' then
+            UI.cfgCheck('Auto /ad: повторять своё объявление##fb_aad', c, 'auto_ad')
+            UI.cfgCheck('Auto /up: поднимать объявление##fb_aup', c, 'auto_up', 'Поднимает объявление и закрывает окна очереди.')
+            UI.cfgCheck('AutoReset: /reset, когда маска скрыла вас на GPS##fb_ar', c, 'autoreset')
+            UI.cfgCheck('Снимать наушники (/head)##fb_head', c, 'head_auto')
+            UI.cfgCheck('AutoBenz: подтверждать заправку##fb_ab', c, 'autobenz')
+            UI.cfgCheck('Чистый онлайн в окне статистики##fb_onl', c, 'online')
+            UI.cfgCheck('Данные диспетчера: метка на клавишу 3 в машине##fb_dsp', c, 'dispatch')
+            UI.cfgCheck('Кнопка FIX в радиальном меню##fb_fix', c, 'fix_radial', 'Появляется в пункте «Мои бинды».')
+            UI.cfgCheck('Круиз-контроль##fb_cr', c, 'cruise', '«=» включить, W запомнить скорость, S выключить.')
+        elseif t == 'phone' then
+            UI.cfgCheck('Отвечать на вызов клавишами##fb_pk', c, 'phone_keys')
+            UI.rowLabel('Принять', S(150)); keyCombo('fb_py', c, 'phone_yes', 'phone_no')
+            UI.rowLabel('Отклонить', S(150)); keyCombo('fb_pn', c, 'phone_no', 'phone_yes')
+            UI.cfgCheck('С отыгровкой (как /pp и /hh)##fb_prp', c, 'phone_rp')
+            UI.cfgCheck('SMS-автоответ при отклонении##fb_sms', c, 'sms_reply', 'Если номер звонящего известен.')
+            UI.hint('Последний номер SMS: ' .. (c.last_sms ~= '' and c.last_sms or 'нет') .. '   ·   звонивший: ' .. (c.last_caller ~= '' and c.last_caller or 'неизвестен'))
+            for _, k in ipairs(UI.keyConflicts and UI.keyConflicts() or {}) do UI.colored(C.bad, k) end
+        elseif t == 'widgets' then
+            UI.cfgCheck('Инфо-виджет: ник, район, квадрат, время (/vid)##fb_iw', c, 'info_widget')
+            UI.cfgCheck('Контакты онлайн (/ts2)##fb_cs', c, 'contacts_show')
+            UI.label('Ники контактов через запятую (Имя_Фамилия)')
+            local cb = UI.cfgTexts.fb_ct
+            if not cb then cb = imgui.new.char[1024](); UI.cfgTexts.fb_ct = cb; UI.setBuf(cb, table.concat(c.contacts, ', ')) end
+            imgui.SetNextItemWidth(-1)
+            if imgui.InputTextWithHint('##fb_ct', 'Ivan_Petrov, Anna_Smith', cb, ffi.sizeof(cb)) then
+                local list = {}
+                for nm in UI.getBuf(cb):gmatch('[^,;%s]+') do list[#list + 1] = nm end
+                c.contacts = list; FBX.save()
+            end
+            UI.focusRing()
+        else
+            UI.label('ПОИСК ДОМА')
+            imgui.AlignTextToFramePadding()
+            UI.text('База домов: ' .. (FBX.houses and 'загружена' or (F.exists(FBX.HOUSES_PATH) and 'есть файл' or 'не загружена')))
+            imgui.SameLine()
+            if UI.btn('Загрузить базу домов##fb_hdl', true) then FBX.downloadHouses() end
+            UI.hint('/tsh [номер]: метка на дом. /rb: убрать метку.')
+            imgui.Spacing()
+            UI.label('КОМАНДЫ СЛУЖЕБНЫХ ФУНКЦИЙ')
+            UI.text('/incar /inmoto /cf /gg /mir /unc /nar /pt /ot /cs /css /fo /foff /cam /cams /ton /alp /alpt /alps /meg /megsp /krik /dor /pr /pk /pn /rhelp /fhelp /mon /moff /hh /pp /уд /sos /qsmcar /pg /biz /ja /jt /sm /hist /ln /cc /rc /iidd /ii /tsh /rb /vid /ts2 /clc /hexit /ук')
+            UI.hint('Тексты команд: страница «Биндер».')
+        end
+    end)
+end
+
+-- Заметки: редактор на всю страницу и честный индикатор сохранения
+function PG.notes()
+    local b = UI.cfgTexts.notes
+    if not b then b = imgui.new.char[8192](); UI.cfgTexts.notes = b; UI.setBuf(b, cfg.notes or '') end
+    local h = math.max(S(220), imgui.GetContentRegionAvail().y)
+    UI.box('notes', 'Заметки', function()
+        if imgui.InputTextMultiline('##notes', b, ffi.sizeof(b), imgui.ImVec2(-1, -imgui.GetFrameHeightWithSpacing())) then cfg.notes = UI.getBuf(b); FBX.save() end
+        UI.focusRing()
+        local state, col
+        if FBX.saveAt then state, col = 'Сохраняется…', C.warn
+        elseif CFG.lastError then state, col = 'Не сохранено: ' .. tostring(CFG.lastError), C.bad
+        else state, col = 'Сохранено', C.good end
+        imgui.AlignTextToFramePadding()
+        UI.colored(col, '● ' .. state)
         imgui.SameLine()
-        if ok then UI.colored(C.good, 'готов') else UI.colored(C.warn, (w < math.huge and ('пауза ' .. math.ceil(w) .. ' с') or 'выключен')) end
+        UI.muted('   ' .. #(cfg.notes or '') .. ' / ' .. (ffi.sizeof(b) - 1) .. ' байт  ·  хранятся в настройках')
+    end, { fill = h, solid = true })
+end
+
+-- Настройки ---------------------------------------------------------------------
+UI.themeBufs = {}
+UI.setTab = UI.setTab or 'main'
+local SET_TABS = { { 'main', 'Основные' }, { 'look', 'Внешний вид' }, { 'ai', 'ИИ' }, { 'upd', 'Обновления' }, { 'conf', 'Конфигурация' } }
+UI.bgPath = UI.bgPath or imgui.new.char[260]()
+UI.bgInts = UI.bgInts or { dim = imgui.new.int(62), panel = imgui.new.int(90) }
+
+local function setMain()
+    UI.split(function(w)
+        UI.box('st_rp', 'Отыгровки и чат', function()
+            UI.label('Пауза между строками отыгровки (стандартно 800 мс)')
+            imgui.SetNextItemWidth(S(240))
+            if imgui.SliderInt('##st_delay', UI.buf.delay, 500, 1300, '%d мс') then UI.dirty = true end
+            UI.cfgCheck('Переносить длинный текст (/wrap)##st_wrap', cfg.fbi, 'extra_msg', 'Сообщение длиннее лимита сервера делится на части с «...»: обычный чат, /me, /do, /r, /f, /m, /s, /n. Команда /wrap включает и выключает.')
+            if cfg.fbi.extra_msg then
+                UI.rowLabel('Длина части, символов', S(190))
+                UI.cfgStep('st_wraplen', cfg.fbi, 'extra_len', 60, 120, 2, '%d')
+            end
+            UI.check('Скрывать строки чата с этими словами##st_flt', UI.buf.filterOn)
+            if UI.buf.filterOn[0] then UI.area('filter', UI.buf.filter, 60) end
+        end, { w = w })
+    end, function(w)
+        UI.box('st_keys', 'Клавиши', function()
+            UI.rowLabel('Курсор (также /cursor)', S(190))
+            imgui.SetNextItemWidth(S(110))
+            if imgui.BeginCombo('##st_ckey', UI.edit.cursorKey) then
+                for i, k in ipairs(UI.KEYS) do
+                    if imgui.Selectable(k .. '##ck' .. i, UI.edit.cursorKey == k) then UI.edit.cursorKey = k; UI.dirty = true end
+                end
+                imgui.EndCombo()
+            end
+            UI.hint('Радиальное меню на колёсике включается на странице «Радиальное меню». Клавиши биндов: «Биндер».')
+        end, { w = w })
+        imgui.Spacing()
+        UI.box('st_al', 'Автовход', function()
+            UI.colored(C.warn, 'Пароль хранится на компьютере в открытом виде. Автоматический вход может нарушать правила сервера.')
+            UI.check('Включить автовход##st_al', UI.buf.alOn)
+            if UI.buf.alOn[0] then UI.dfield('Пароль', 'st_pass', UI.buf.pass, nil, imgui.InputTextFlags.Password) end
+        end, { w = w })
+    end, S(290))
+end
+
+-- Плитка галереи фонов: миниатюра, выделение выбранного, название под плиткой
+local function bgTile(e, sel, tw, th)
+    local BG = UI.BGX
+    local p = imgui.GetCursorScreenPos()
+    imgui.BeginGroup()
+    local clicked = imgui.InvisibleButton('##bgt_' .. e.id, imgui.ImVec2(tw, th))
+    local hov = imgui.IsItemHovered()
+    local dl = imgui.GetWindowDrawList()
+    local p2 = imgui.ImVec2(p.x + tw, p.y + th)
+    local r = S(6)
+    local have = BG.exists(e)
+    local t = have and BG.thumb(e) or nil
+    if t and t.tex then
+        local uv0, uv1 = BG.cover(t.w, t.h, tw, th, 'center')
+        dl:AddImageRounded(t.tex, p, p2, uv0, uv1, UI.U32(V4(1, 1, 1, 1), 1), r, 15)
+    else
+        dl:AddRectFilled(p, p2, UI.U32(UI.shade(C.card, 0.04), 1), r)
+        local s = have and (e.custom and 'Свой фон' or 'Без миниатюры') or (BG.fetching[e.id] and 'Загрузка…' or 'Нет файла')
+        local ts = imgui.CalcTextSize(s)
+        dl:AddText(imgui.ImVec2(p.x + (tw - ts.x) / 2, p.y + (th - ts.y) / 2), UI.U32(C.muted, 1), s)
+    end
+    local hv = UI.anim('bgh' .. e.id, hov and 1 or 0, 0.14)
+    local sv = UI.anim('bgs' .. e.id, sel and 1 or 0, 0.18)
+    if hv > 0.01 and not sel then dl:AddRectFilled(p, p2, UI.U32(V4(1, 1, 1, 1), 0.06 * hv), r) end
+    dl:AddRect(p, p2, UI.U32(UI.mix(C.border, C.accent, math.max(sv, hv * 0.5)), 1), r, 15, 1 + sv * S(1.5))
+    if sv > 0.02 then
+        local c = imgui.ImVec2(p2.x - S(12), p.y + S(12))
+        dl:AddCircleFilled(c, S(8), UI.U32(C.accent2, sv), 16)
+        local w = UI.U32(V4(1, 1, 1, 1), sv)
+        dl:AddLine(imgui.ImVec2(c.x - S(4), c.y), imgui.ImVec2(c.x - S(1), c.y + S(3)), w, S(1.6))
+        dl:AddLine(imgui.ImVec2(c.x - S(1), c.y + S(3)), imgui.ImVec2(c.x + S(4), c.y - S(3)), w, S(1.6))
+    end
+    local title = e.title
+    local maxCh = math.max(6, math.floor(tw / S(7)))
+    if UI.fontSmall then imgui.PushFont(UI.fontSmall) end
+    UI.colored(sel and C.text or C.muted, U.cut(title, maxCh))
+    if UI.fontSmall then imgui.PopFont() end
+    imgui.EndGroup()
+    if imgui.IsItemHovered() then UI.tipNow(title .. (have and '' or '\nФайла нет: нажмите, чтобы скачать')) end
+    return clicked
+end
+
+local function setLook()
+    local BG = UI.BGX
+    local b = BG.cfg()
+    UI.box('st_bg', 'Фон окна', function()
+        UI.cfgCheck('Фоновое изображение##bg_on', b, 'on', 'Картинка внутри окна хелпера. Выключено: обычный графитовый фон.')
         imgui.SameLine()
-        if UI.btn('Проверить связь##tst', not RAI.testing) then RAI.test(p) end
-        UI.muted('   ' .. tostring(s.status))
-        imgui.PopID()
-    end
-    if RAI.lastTest then
-        local t = RAI.lastTest
-        UI.colored(t.ok == true and C.good or t.ok == false and C.bad or C.accent, 'Проверка ' .. t.name .. ': ' .. t.text)
-    end
-    local okTls, whyTls = H.tlsReady()
-    UI.kv('Защищённое соединение', okTls and 'сертификат и имя сервера проверяются' or ('недоступно: ' .. tostring(whyTls)))
-    UI.kv('Сертификаты', N.state.ca.status)
-    if UI.btn('Загрузить сертификаты заново##st_ca', true) then os.remove(P.ca); N.checkCA() end
-    imgui.SameLine()
-    if UI.btn('Обновить список сервисов##st_prov', true) then AIP.check(true) end
-    if imgui.CollapsingHeader('Свой сервис с ключом (необязательно)##st_own') then
-        UI.muted('Совместимый с OpenAI адрес /v1/chat/completions. Ключ уходит только на этот адрес.')
-        UI.cfgText('st_curl', cfg.ai, 'custom_url', 'https://адрес/v1/chat/completions', 256)
-        UI.cfgText('st_cmod', cfg.ai, 'custom_model', 'модель', 128)
-        local kb = UI.cfgTexts.st_ckey
-        if not kb then kb = imgui.new.char[256](); UI.cfgTexts.st_ckey = kb; UI.setBuf(kb, cfg.ai.custom_key or '') end
-        imgui.SetNextItemWidth(-1)
-        if imgui.InputTextWithHint('##st_ckey', 'ключ', kb, ffi.sizeof(kb), imgui.InputTextFlags.Password) then cfg.ai.custom_key = UI.getBuf(kb); FBX.save() end
-    end
+        imgui.AlignTextToFramePadding()
+        if b.on and BG.err then UI.colored(C.warn, '   ' .. BG.err .. ': показан графитовый фон')
+        elseif b.on then UI.muted('   выбран: ' .. ((BG.entry(b.id) or {}).title or b.id)) end
+        imgui.Spacing()
+        local items = BG.items()
+        local avail = imgui.GetContentRegionAvail().x
+        local gap = S(10)
+        local tw = S(124)
+        local per = math.max(1, math.floor((avail + gap) / (tw + gap)))
+        tw = math.floor((avail - gap * (per - 1)) / per)
+        local th = math.floor(tw * 9 / 16)
+        local missing = 0
+        for i, e in ipairs(items) do
+            if (i - 1) % per ~= 0 then imgui.SameLine(0, gap) end
+            if bgTile(e, b.on and b.id == e.id, tw, th) then
+                if e.builtin and not BG.exists(e) then
+                    BG.fetch(e, function(ok) if ok then UI.toastShow('Фон «' .. e.title .. '» загружен.', 'ok') else UI.toastShow('Фон «' .. e.title .. '» не скачался, подробности в helper.log.', 'bad') end end)
+                    UI.toastShow('Загружаю фон «' .. e.title .. '»…', 'ok')
+                end
+                b.id, b.on = e.id, true
+                FBX.save()
+            end
+            if e.builtin and not BG.exists(e) then missing = missing + 1 end
+        end
+        if missing > 0 then
+            imgui.Spacing()
+            if UI.btn('Скачать стандартные фоны (' .. missing .. ')##bg_dl', true) then
+                for _, e in ipairs(items) do if e.builtin and not BG.exists(e) then BG.fetch(e) end end
+            end
+        end
+    end)
+    imgui.Spacing()
+    UI.split(function(w)
+        UI.box('st_read', 'Читаемость', function()
+            UI.cfgCheck('Повышенная читаемость##bg_read', b, 'readable', 'Панели почти непрозрачные, затемнение сильнее. Фотография остаётся видна на свободных участках окна.')
+            local ro = b.readable
+            UI.bgInts.dim[0] = math.floor(BG.dim() * 100 + 0.5)
+            UI.bgInts.panel[0] = math.floor(UI.panelAlpha() * 100 + 0.5)
+            UI.rowLabel('Затемнение фона', S(170))
+            imgui.SetNextItemWidth(-1)
+            if ro then imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, 0.5) end
+            if imgui.SliderInt('##bg_dim', UI.bgInts.dim, 40, 90, '%d%%') and not ro then b.dim = UI.bgInts.dim[0] / 100; FBX.save() end
+            UI.rowLabel('Плотность панелей', S(170))
+            imgui.SetNextItemWidth(-1)
+            if imgui.SliderInt('##bg_panel', UI.bgInts.panel, 80, 100, '%d%%') and not ro then b.panel = UI.bgInts.panel[0] / 100; FBX.save() end
+            if ro then imgui.PopStyleVar(1); UI.hint('В режиме повышенной читаемости ползунки не действуют.') end
+            UI.rowLabel('Кадрирование', S(170))
+            local al = UI.segment('bg_al', { { 'left', 'Слева' }, { 'center', 'По центру' }, { 'right', 'Справа' } }, b.align)
+            if al ~= b.align then b.align = al; FBX.save() end
+            if UI.btn('Рекомендуемые параметры##bg_def', true) then
+                b.dim, b.panel, b.align, b.readable = BG.DEF.dim, BG.DEF.panel, BG.DEF.align, BG.DEF.readable
+                FBX.save()
+            end
+            UI.hint('Пределы ползунков не дают сделать текст нечитаемым.')
+        end, { w = w })
+    end, function(w)
+        UI.box('st_own', 'Свой фон', function()
+            UI.hint('JPG, PNG или BMP до 12 МБ. Файл копируется в moonloader/KatrineHelper/backgrounds/custom, поэтому исходник можно удалить. Туда же можно положить картинку вручную.')
+            UI.field(nil, 'bg_path', UI.bgPath, 'C:\\Users\\...\\Pictures\\фон.jpg', 0, -1)
+            if UI.btn('Добавить и выбрать##bg_add', U.trim(UI.getBuf(UI.bgPath)) ~= '', 0, 0, 'primary') then
+                local ok, err = BG.addCustom(UI.getBuf(UI.bgPath))
+                if ok then UI.setBuf(UI.bgPath, ''); UI.toastShow('Свой фон добавлен.', 'ok') else UI.toastShow('Фон не добавлен: ' .. tostring(err), 'bad') end
+            end
+            imgui.SameLine()
+            if UI.btn('Обновить список##bg_rescan', true) then BG.list = nil end
+            local cur = BG.entry(b.id)
+            if cur and cur.custom then
+                imgui.SameLine()
+                if UI.btn('Удалить свой фон##bg_rm', true, 0, 0, 'danger') then
+                    UI.confirmAsk('Удалить свой фон?', 'Копия картинки в папке хелпера будет удалена, фон вернётся к стандартному.', function() BG.removeCustom(cur) end)
+                end
+            end
+        end, { w = w })
+    end, S(290))
+    imgui.Spacing()
+    UI.split(function(w)
+        UI.box('st_ui', 'Интерфейс', function()
+            UI.cfgCheck('Анимации##st_anim', cfg.ui, 'anim', 'Плавные переходы кнопок, переключателей, меню и фона. Выключено: всё меняется сразу.')
+            UI.rowLabel('Масштаб', S(110))
+            imgui.SetNextItemWidth(-1)
+            if imgui.SliderFloat('##st_scale', UI.buf.scale, 0.7, 1.8, '%.2f') then UI.dirty = true end
+            UI.hint('Масштаб шрифта применится после «Сохранить» и перезапуска скрипта.')
+        end, { w = w })
+    end, function(w)
+        UI.box('st_colors', 'Цвета', function()
+            local colW = math.floor(imgui.GetContentRegionAvail().x / 2)
+            for i, t in ipairs(UI.THEME) do
+                local key = t[1]
+                local fb = UI.themeBufs[key]
+                if not fb then fb = imgui.new.float[3](); UI.themeBufs[key] = fb end
+                local col = C[key]
+                fb[0], fb[1], fb[2] = col.x, col.y, col.z
+                if i % 2 == 0 then imgui.SameLine(colW + imgui.GetStyle().WindowPadding.x) end
+                if imgui.ColorEdit3(U.cut(t[2], 22) .. '##th_' .. key, fb, imgui.ColorEditFlags.NoInputs) then
+                    cfg.ui.theme[key] = { fb[0], fb[1], fb[2] }
+                    UI.applyTheme(); UI.applyStyle(); FBX.save()
+                end
+                if imgui.IsItemHovered() then UI.tipNow(t[2]) end
+            end
+            if UI.btn('Стандартные цвета##th_def', next(cfg.ui.theme) ~= nil) then
+                cfg.ui.theme = {}
+                UI.applyTheme(); UI.applyStyle(); FBX.save()
+            end
+        end, { w = w })
+    end, S(290))
+end
 
-    UI.section('Обновление')
-    UI.check('Обновлять автоматически##st_upd', UI.buf.upd)
-    UI.kv('Установлена', VERSION)
-    UI.kv('На GitHub', N.state.update.remote or 'не проверялось')
-    UI.kv('Состояние', N.state.update.status)
-    UI.kv('База законов', (L.loaded and (#L.flat .. ' статей, версия ' .. L.version) or L.status) .. ' · ' .. N.state.laws.status)
-    if UI.btn('Проверить обновление##st_chk', not N.state.update.busy, 0, 0, 'primary') then N.checkUpdate(true) end
-    imgui.SameLine()
-    if UI.btn('Обновить базу законов##st_laws', not N.state.laws.busy) then N.checkLaws(true) end
-    imgui.SameLine()
-    local hasBak = cfg.update.prev_backup and F.exists(cfg.update.prev_backup)
-    if UI.btn('Вернуть прошлую версию##st_rb', hasBak, 0, 0, 'danger', hasBak and cfg.update.prev_backup or 'Резервной копии нет') then
-        UI.confirmAsk('Вернуть прошлую версию?', 'Скрипт будет заменён резервной копией, автообновление выключится.', function() N.rollback() end)
-    end
-    UI.muted('Файл обновления принимается только с размером и SHA-256 в version.json, после проверки синтаксиса. Прошлая версия сохраняется в moonloader/KatrineHelper/backup.')
-
-    UI.section('Настройки')
-    UI.kv('Файл', 'moonloader/config/KatrineHelper.json')
-    UI.kv('Загружены из', CFG.loadedFrom == 'backup' and 'резервной копии (основной файл был повреждён)' or CFG.loadedFrom == 'file' and 'файла' or 'значений по умолчанию')
-    if UI.btn('Восстановить из резервной копии##st_bak', F.exists(P.cfg .. '.bak'), 0, 0, 'danger') then
-        UI.confirmAsk('Восстановить настройки?', 'Текущие настройки заменятся прошлой сохранённой версией.', function()
-            if CFG.restoreBackup() then UI.sync(); registerBinds(); UI.toastShow('Настройки восстановлены.', 'ok') else UI.toastShow('Резервная копия повреждена.', 'bad') end
+local function setAi()
+    UI.box('st_ai', 'Справочник с ИИ', function()
+        local was = cfg.ai.enabled
+        UI.cfgCheck('Отвечать на вопросы через ИИ##st_ai', cfg.ai, 'enabled', 'Выключено: справочник показывает только выдержки из базы законов.')
+        if was and not cfg.ai.enabled then RAI.cancel(); if REF.ai and REF.ai.state == 'pending' then REF.ai = { state = 'off', reason = 'ИИ выключен в настройках' } end end
+        UI.hint('Сервису ИИ уходят только текст вашего вопроса и подобранные статьи из базы. Чат, ники окружающих, пароль и настройки не отправляются. Такие сервисы могут хранить запросы.')
+        imgui.Spacing()
+        UI.label('СЕРВИСЫ')
+        for i, p in ipairs(AIP.all()) do
+            imgui.PushIDInt(1000 + i)
+            local s = AIP.st(p)
+            local ok, w = AIP.available(p)
+            local on = not cfg.ai.disabled[p.name]
+            local v, ch = UI.toggle(p.name .. '##pt', on)
+            if ch then cfg.ai.disabled[p.name] = (not v) and true or nil; FBX.save() end
+            imgui.SameLine(S(240))
+            imgui.AlignTextToFramePadding()
+            if ok then UI.colored(C.good, 'готов') else UI.colored(C.warn, (w < math.huge and ('пауза ' .. math.ceil(w) .. ' с') or 'выключен')) end
+            imgui.SameLine(S(340))
+            if UI.btn('Проверить связь##tst', not RAI.testing) then RAI.test(p) end
+            if tostring(s.status or '') ~= '' then UI.hint(tostring(s.status)) end
+            imgui.PopID()
+        end
+        if RAI.lastTest then
+            local t = RAI.lastTest
+            UI.colored(t.ok == true and C.good or t.ok == false and C.bad or C.accent, 'Проверка ' .. t.name .. ': ' .. t.text)
+        end
+        imgui.Spacing()
+        UI.fold('st_ai_tech', 'Подключение и сертификаты', function()
+            local okTls, whyTls = H.tlsReady()
+            UI.kv('Защищённое соединение', okTls and 'сертификат и имя сервера проверяются' or ('недоступно: ' .. tostring(whyTls)))
+            UI.kv('Сертификаты', N.state.ca.status)
+            if UI.btn('Загрузить сертификаты заново##st_ca', true) then os.remove(P.ca); N.checkCA() end
+            imgui.SameLine()
+            if UI.btn('Обновить список сервисов##st_prov', true) then AIP.check(true) end
         end)
-    end
-    imgui.SameLine()
-    if UI.btn('Сбросить всё по умолчанию##st_rst', true, 0, 0, 'danger') then
-        UI.confirmAsk('Сбросить все настройки?', 'Профиль, отыгровки, бинды и меню вернутся к стандартным. Прошлая версия останется в KatrineHelper.json.bak.', function()
-            cfg = U.copy(DEFAULT_CFG)
-            CFG.save(); CFG.load(); UI.sync(); registerBinds()
-            UI.toastShow('Настройки сброшены.', 'ok')
+        UI.fold('st_own_ai', 'Свой сервис с ключом (необязательно)', function()
+            UI.hint('Совместимый с OpenAI адрес /v1/chat/completions. Ключ уходит только на этот адрес.')
+            UI.cfgText('st_curl', cfg.ai, 'custom_url', 'https://адрес/v1/chat/completions', 256)
+            UI.cfgText('st_cmod', cfg.ai, 'custom_model', 'модель', 128)
+            local kb = UI.cfgTexts.st_ckey
+            if not kb then kb = imgui.new.char[256](); UI.cfgTexts.st_ckey = kb; UI.setBuf(kb, cfg.ai.custom_key or '') end
+            imgui.SetNextItemWidth(-1)
+            if imgui.InputTextWithHint('##st_ckey', 'ключ', kb, ffi.sizeof(kb), imgui.InputTextFlags.Password) then cfg.ai.custom_key = UI.getBuf(kb); FBX.save() end
+            UI.focusRing()
         end)
-    end
+    end)
+end
 
-    UI.section('Автовход')
-    UI.colored(C.warn, 'Пароль хранится на вашем компьютере в открытом виде. Автоматический вход может нарушать правила сервера.')
-    UI.check('Включить автовход##st_al', UI.buf.alOn)
-    UI.dfield('Пароль', 'st_pass', UI.buf.pass, nil, imgui.InputTextFlags.Password)
+local function setUpd()
+    UI.box('st_upd', 'Обновление', function()
+        UI.check('Обновлять автоматически##st_upd', UI.buf.upd)
+        UI.kv('Установлена', VERSION, 170)
+        UI.kv('На GitHub', N.state.update.remote or 'не проверялось', 170)
+        UI.kv('Состояние', N.state.update.status, 170)
+        UI.kv('База законов', (L.loaded and (#L.flat .. ' статей, версия ' .. L.version) or L.status), 170)
+        imgui.Spacing()
+        if UI.btn('Проверить обновление##st_chk', not N.state.update.busy, 0, 0, 'primary') then N.checkUpdate(true) end
+        imgui.SameLine()
+        if UI.btn('Обновить базу законов##st_laws', not N.state.laws.busy) then N.checkLaws(true) end
+        imgui.SameLine()
+        local hasBak = cfg.update.prev_backup and F.exists(cfg.update.prev_backup)
+        if UI.btn('Вернуть прошлую версию##st_rb', hasBak, 0, 0, 'danger', hasBak and cfg.update.prev_backup or 'Резервной копии нет') then
+            UI.confirmAsk('Вернуть прошлую версию?', 'Скрипт будет заменён резервной копией, автообновление выключится.', function() N.rollback() end)
+        end
+        UI.fold('st_upd_tech', 'Подробнее о проверке', function()
+            UI.hint('Файл обновления принимается только с размером и SHA-256 из version.json и после проверки синтаксиса. Прошлая версия сохраняется в moonloader/KatrineHelper/backup.')
+            UI.kv('Состояние базы', N.state.laws.status, 170)
+        end)
+    end)
+end
+
+local function setConf()
+    UI.box('st_conf', 'Файл настроек', function()
+        UI.kv('Файл', 'moonloader/config/KatrineHelper.json', 170)
+        UI.kv('Загружены из', CFG.loadedFrom == 'backup' and 'резервной копии (основной файл был повреждён)' or CFG.loadedFrom == 'file' and 'файла' or 'значений по умолчанию', 170)
+        imgui.Spacing()
+        if UI.btn('Восстановить из резервной копии##st_bak', F.exists(P.cfg .. '.bak'), 0, 0, 'danger') then
+            UI.confirmAsk('Восстановить настройки?', 'Текущие настройки заменятся прошлой сохранённой версией.', function()
+                if CFG.restoreBackup() then UI.sync(); registerBinds(); UI.toastShow('Настройки восстановлены.', 'ok') else UI.toastShow('Резервная копия повреждена.', 'bad') end
+            end)
+        end
+        imgui.SameLine()
+        if UI.btn('Сбросить всё по умолчанию##st_rst', true, 0, 0, 'danger') then
+            UI.confirmAsk('Сбросить все настройки?', 'Профиль, отыгровки, бинды и меню вернутся к стандартным. Прошлая версия останется в KatrineHelper.json.bak.', function()
+                cfg = U.copy(DEFAULT_CFG)
+                CFG.save(); CFG.load(); UI.sync(); registerBinds()
+                UI.toastShow('Настройки сброшены.', 'ok')
+            end)
+        end
+    end)
+end
+
+function PG.settings()
+    UI.box('st_tabs', nil, function()
+        UI.setTab = UI.tabs('set', SET_TABS, UI.setTab)
+        UI.hint(UI.setTab == 'main' and 'Пауза, фильтр чата, клавиша курсора и автовход сохраняются кнопкой «Сохранить». Перенос текста применяется сразу.'
+            or UI.setTab == 'look' and 'Фон, читаемость, анимации и цвета применяются сразу.'
+            or UI.setTab == 'ai' and 'Подключение справочника к сервисам ИИ.'
+            or UI.setTab == 'upd' and 'Автообновление скрипта и базы законов.'
+            or 'Резервная копия и сброс настроек.')
+    end)
+    imgui.Spacing()
+    local t = UI.setTab
+    if t == 'main' then setMain() elseif t == 'look' then setLook() elseif t == 'ai' then setAi() elseif t == 'upd' then setUpd() else setConf() end
 end
 
 PG.ORDER = {}
 for _, n in ipairs(NAV) do if n.id then PG.ORDER[n.id] = PG[n.id] end end
 
 -------------------------------------------------------------------------------
--- Главное окно: шапка, навигация слева, содержимое справа
+-- Главное окно: шапка, навигация слева, содержимое справа, нижняя панель.
+-- Шапка, навигация и нижняя панель не двигаются; прокручивается только содержимое страницы.
 -------------------------------------------------------------------------------
 UI.pageError = nil
 -- Страницы, где изменения применяются кнопкой «Сохранить»; на остальных всё пишется сразу
 UI.SAVE_PAGES = { binds = true, officer = true, settings = true }
 
+local function strip(p, w, h)
+    local dl = imgui.GetWindowDrawList()
+    local p2 = imgui.ImVec2(p.x + w, p.y + h)
+    dl:AddRectFilled(p, p2, UI.U32(C.panel, UI.panelAlpha()), S(7))
+    dl:AddRect(p, p2, UI.U32(C.border, 0.95), S(7), 15, 1)
+end
+
 local function drawHeader()
     local dl = imgui.GetWindowDrawList()
     local p = imgui.GetCursorScreenPos()
     local w = imgui.GetContentRegionAvail().x
-    -- «Назад»: предыдущая открытая страница меню
+    local hh = S(50)
+    strip(p, w, hh)
+    -- тонкая полоса маячка снизу: синяя и красная
+    local y = p.y + hh - S(3)
+    dl:AddRectFilled(imgui.ImVec2(p.x + S(10), y), imgui.ImVec2(p.x + w / 2, y + S(2)), UI.U32(C.accent, 0.85))
+    dl:AddRectFilled(imgui.ImVec2(p.x + w / 2, y), imgui.ImVec2(p.x + w - S(10), y + S(2)), UI.U32(C.siren, 0.6))
+    local bh = imgui.GetFrameHeight()
+    imgui.SetCursorScreenPos(imgui.ImVec2(p.x + S(9), p.y + (hh - bh) / 2 - S(1)))
     local prev = UI.hist[#UI.hist]
     local prevTitle
     for _, n in ipairs(UI.NAV) do if n.id == prev then prevTitle = n.title end end
-    if UI.btn('‹ Назад##back', prev ~= nil, S(92), S(36), nil, prev and ('Вернуться: ' .. (prevTitle or prev)) or 'Назад некуда') then UI.back() end
-    imgui.SameLine(0, S(12))
-    local p0 = p
-    p = imgui.GetCursorScreenPos()
-    -- знак: тёмный щиток с буквой K и тонкая полоса синего и красного, как у проблескового маячка
-    local sz = S(36)
-    dl:AddRectFilled(p, imgui.ImVec2(p.x + sz, p.y + sz), U32(C.accent2, 1), S(6))
-    local f = UI.fontTitle or UI.fontBold
+    if UI.btn('‹##back', prev ~= nil, bh, bh, nil, prev and ('Назад: ' .. (prevTitle or prev)) or 'Назад некуда') then UI.back() end
+    imgui.SameLine(0, S(10))
+    local lp = imgui.GetCursorScreenPos()
+    dl:AddRectFilled(lp, imgui.ImVec2(lp.x + bh, lp.y + bh), UI.U32(C.accent2, 1), S(6))
+    local f = UI.fontBold
     if f then imgui.PushFont(f) end
     local ts = imgui.CalcTextSize('K')
-    dl:AddText(imgui.ImVec2(p.x + (sz - ts.x) / 2, p.y + (sz - ts.y) / 2), U32(C.text, 1), 'K')
-    if f then imgui.PopFont() end
-    imgui.Dummy(imgui.ImVec2(sz, sz))
-    imgui.SameLine(0, S(12))
+    dl:AddText(imgui.ImVec2(lp.x + (bh - ts.x) / 2, lp.y + (bh - ts.y) / 2), UI.U32(C.text, 1), 'K')
+    imgui.Dummy(imgui.ImVec2(bh, bh))
+    imgui.SameLine(0, S(10))
     imgui.BeginGroup()
-    if f then imgui.PushFont(f) end
+    imgui.PushStyleVarVec2(imgui.StyleVar.ItemSpacing, imgui.ImVec2(S(8), 0))
     imgui.TextUnformatted('KATRINE HELPER')
     if f then imgui.PopFont() end
     local pr = cfg.profile
-    UI.muted((pr.rank ~= '' and (pr.rank .. ' ') or '') .. RP.fullName() .. '  ·  ' .. (D.DEPT_FULL[pr.dept] or pr.dept))
+    if UI.fontSmall then imgui.PushFont(UI.fontSmall) end
+    UI.colored(C.muted, U.cut((pr.rank ~= '' and (pr.rank .. ' ') or '') .. RP.fullName() .. '  ·  ' .. (D.DEPT_FULL[pr.dept] or pr.dept), 60))
+    if UI.fontSmall then imgui.PopFont() end
+    imgui.PopStyleVar(1)
     imgui.EndGroup()
-    imgui.SameLine(math.max(S(420), w - S(250)))
-    imgui.BeginGroup()
-    if PAT.active then UI.pill('ПАТРУЛЬ ' .. mmss(clock() - PAT.since), C.good) else UI.pill('ВНЕ ПАТРУЛЯ', C.muted) end
-    imgui.SameLine()
-    UI.pill(CUR.manual and 'КУРСОР ВКЛ' or (tostring(cfg.cursor.key) .. ': курсор'), CUR.manual and C.accent or C.muted)
-    imgui.EndGroup()
-    local y = p.y + sz + S(8)
-    local half = w / 2
-    dl:AddRectFilled(imgui.ImVec2(p0.x, y), imgui.ImVec2(p0.x + half, y + S(2)), U32(C.accent, 0.85))
-    dl:AddRectFilled(imgui.ImVec2(p0.x + half, y), imgui.ImVec2(p0.x + w, y + S(2)), U32(C.siren, 0.55))
-    imgui.Dummy(imgui.ImVec2(w, S(10)))
+    -- статусы справа
+    local a = PAT.active and ('ПАТРУЛЬ ' .. mmss(clock() - PAT.since)) or 'ВНЕ ПАТРУЛЯ'
+    local b = CUR.manual and 'КУРСОР ВКЛ' or (tostring(cfg.cursor.key) .. ': курсор')
+    local pw = imgui.CalcTextSize(a).x + imgui.CalcTextSize(b).x + S(16) * 2 + S(6)
+    local ph = imgui.GetTextLineHeight() + S(6)
+    local rx = p.x + w - S(10) - pw
+    if rx > imgui.GetItemRectMax().x + S(12) then
+        imgui.SetCursorScreenPos(imgui.ImVec2(rx, p.y + (hh - ph) / 2 - S(1)))
+        UI.pill(a, PAT.active and C.good or C.muted)
+        imgui.SameLine(0, S(6))
+        UI.pill(b, CUR.manual and C.accent or C.muted)
+    end
+    imgui.SetCursorScreenPos(imgui.ImVec2(p.x, p.y + hh + S(8)))
 end
 
-imgui.OnFrame(function() return cfg ~= nil and W.menu[0] and UI.overlayFree() end, function()
-    UI.placeWindow('main', 1000, 660)
-    imgui.Begin('Katrine Helper##main', W.menu, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoTitleBar)
-    drawHeader()
-    local footer = imgui.GetFrameHeightWithSpacing() + S(6)
-    imgui.PushStyleColor(imgui.Col.ChildBg, C.panel)
-    imgui.BeginChild('##nav', imgui.ImVec2(S(190), -footer), true)
-    imgui.PushStyleVarVec2(imgui.StyleVar.ButtonTextAlign, imgui.ImVec2(0.08, 0.5))
+local function drawNav(h)
+    imgui.PushStyleColor(imgui.Col.ChildBg, V4(C.panel.x, C.panel.y, C.panel.z, UI.panelAlpha()))
+    imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(S(6), S(8)))
+    imgui.PushStyleVarFloat(imgui.StyleVar.ChildRounding, S(7))
+    imgui.BeginChild('##nav', imgui.ImVec2(S(176), h), true)
+    imgui.PushStyleVarVec2(imgui.StyleVar.ItemSpacing, imgui.ImVec2(0, S(2)))
+    local wp = imgui.GetWindowPos()
+    local iw = imgui.GetContentRegionAvail().x
+    local ih = S(30)
+    local activeY
     for i, n in ipairs(UI.NAV) do
         if n.group then
-            if i > 1 then imgui.Spacing() end
-            UI.muted(n.group)
+            imgui.Dummy(imgui.ImVec2(1, i > 1 and S(8) or S(1)))
+            imgui.Indent(S(8))
+            UI.label(U.upper and U.upper(n.group) or n.group)
+            imgui.Unindent(S(8))
         else
-            if UI.btn(n.title .. '##nav' .. i, true, -1, S(30), UI.page == n.id and 'primary' or nil) then UI.go(n.id) end
+            local clicked, y = UI.navItem(n.title .. '##nav' .. i, UI.page == n.id, iw, ih)
+            if clicked then UI.go(n.id) end
+            if UI.page == n.id then activeY = y - wp.y end
         end
     end
     imgui.PopStyleVar(1)
+    -- индикатор активного пункта плавно переезжает
+    if activeY then
+        local y = UI.anim('nav_ind', activeY, 0.16)
+        local dl = imgui.GetWindowDrawList()
+        local x = wp.x + S(6)
+        dl:AddRectFilled(imgui.ImVec2(x + S(2), wp.y + y + S(7)), imgui.ImVec2(x + S(5), wp.y + y + ih - S(7)), UI.U32(C.accent, 1), S(2))
+    end
     imgui.EndChild()
+    imgui.PopStyleVar(2)
     imgui.PopStyleColor(1)
+end
+
+local function drawFooter()
+    local p = imgui.GetCursorScreenPos()
+    local w = imgui.GetContentRegionAvail().x
+    local bh = imgui.GetFrameHeight()
+    local fh = bh + S(12)
+    strip(p, w, fh)
+    imgui.SetCursorScreenPos(imgui.ImVec2(p.x + S(6), p.y + S(6)))
+    if UI.SAVE_PAGES[UI.page] or UI.dirty then
+        if UI.btn('Сохранить##save', UI.dirty, S(118), 0, 'primary', 'Сохранить изменения') then UI.apply() end
+        imgui.SameLine(0, S(6))
+        if UI.btn('Отменить##revert', UI.dirty, S(104)) then UI.sync(); UI.toastShow('Изменения отменены.', 'ok') end
+        imgui.SameLine(0, S(12))
+    end
+    imgui.AlignTextToFramePadding()
+    local t = UI.toast
+    local credit = 'Katrine Helper · qqwekky'
+    local closeW = S(92)
+    local creditW = imgui.CalcTextSize(credit).x
+    local room = p.x + w - S(6) - closeW - S(12) - creditW - imgui.GetCursorScreenPos().x
+    local status, col
+    if t and clock() - t.t < 5 then status, col = t.text, (t.kind == 'bad' and C.bad or t.kind == 'warn' and C.warn or C.good)
+    elseif UI.dirty then status, col = '● Есть несохранённые изменения', C.warn
+    else status, col = 'ESC: закрыть  ·  /kh: открыть', C.muted end
+    local maxCh = math.max(8, math.floor((room + creditW) / S(7.5)))
+    imgui.PushStyleColor(imgui.Col.Text, col)
+    imgui.TextUnformatted(U.cut(status, maxCh))
+    imgui.PopStyleColor(1)
+    if #status > maxCh and imgui.IsItemHovered() then UI.tipNow(status) end
+    -- подпись разработчика: мелко и приглушённо, рядом с кнопкой «Закрыть»
+    if room > S(20) then
+        imgui.SameLine()
+        imgui.SetCursorScreenPos(imgui.ImVec2(p.x + w - S(6) - closeW - S(12) - creditW, p.y + S(6)))
+        imgui.AlignTextToFramePadding()
+        imgui.PushStyleColor(imgui.Col.Text, V4(C.muted.x, C.muted.y, C.muted.z, 0.6))
+        imgui.TextUnformatted(credit)
+        imgui.PopStyleColor(1)
+    end
     imgui.SameLine()
-    imgui.BeginChild('##page', imgui.ImVec2(0, -footer), true)
-    local fn = PG.ORDER[UI.page] or PG.home
+    imgui.SetCursorScreenPos(imgui.ImVec2(p.x + w - S(6) - closeW, p.y + S(6)))
+    if UI.btn('Закрыть##m_close', true, closeW) then W.menu[0] = false end
+    imgui.SetCursorScreenPos(imgui.ImVec2(p.x, p.y + fh))
+end
+
+imgui.OnFrame(function() return cfg ~= nil and W.menu[0] and UI.overlayFree() end, function()
+    UI.placeWindow('main', 880, 590)
+    -- окно появляется с плавным нарастанием прозрачности (каждое открытие заново)
+    local okFc, fc = pcall(imgui.GetFrameCount)
+    fc = okFc and tonumber(fc) or 0
+    if not UI.menuFrame or fc - UI.menuFrame > 2 then UI.animSet('menu_in', 0) end
+    UI.menuFrame = fc
+    local fa = UI.anim('menu_in', 1, 0.16, 0)
+    imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, math.max(0.05, fa))
+    imgui.PushStyleVarVec2(imgui.StyleVar.WindowMinSize, imgui.ImVec2(S(560), S(420)))
+    imgui.Begin('Katrine Helper##main', W.menu, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoScrollbar + imgui.WindowFlags.NoScrollWithMouse)
+    imgui.PopStyleVar(1)
+    UI.BGX.draw()
+    drawHeader()
+    -- место под нижнюю панель: её высота и обычный промежуток между элементами
+    local footer = imgui.GetFrameHeight() + S(12) + imgui.GetStyle().ItemSpacing.y
+    local bodyH = -footer
+    drawNav(bodyH)
+    imgui.SameLine(0, S(8))
+    -- область страницы прозрачная: фон видно между блоками, у блоков своя заливка
+    imgui.PushStyleColor(imgui.Col.ChildBg, V4(0, 0, 0, 0))
+    imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(0, 0))
+    imgui.BeginChild('##page', imgui.ImVec2(0, bodyH), false)
+    imgui.PopStyleVar(1)
+    local fn = PG.ORDER[UI.page] or PG.officer
+    -- переход между страницами: содержимое проявляется
+    if UI.lastPage ~= UI.page then UI.lastPage = UI.page; UI.animSet('page_in', 0) end
+    local pa = UI.anim('page_in', 1, 0.15, 1)
+    imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, math.max(0.05, pa * fa))
     local ok, err = pcall(fn)
+    imgui.PopStyleVar(1)
     if not ok then
         if UI.pageError ~= tostring(err) then UI.pageError = tostring(err); log('ошибка страницы ' .. UI.page .. ': ' .. tostring(err)) end
         UI.colored(C.bad, 'Ошибка на странице: ' .. tostring(err))
     end
     imgui.EndChild()
-
-    if UI.SAVE_PAGES[UI.page] or UI.dirty then
-        if UI.btn('Сохранить##save', UI.dirty, S(140), 0, 'primary', 'Сохранить изменения') then UI.apply() end
-        imgui.SameLine()
-        if UI.btn('Отменить##revert', UI.dirty, S(120)) then UI.sync(); UI.toastShow('Изменения отменены.', 'ok') end
-        imgui.SameLine()
-    end
-    imgui.AlignTextToFramePadding()
-    local t = UI.toast
-    if t and clock() - t.t < 5 then
-        UI.colored(t.kind == 'bad' and C.bad or t.kind == 'warn' and C.warn or C.good, t.text)
-    elseif UI.dirty then
-        UI.colored(C.warn, 'Есть несохранённые изменения')
-    else
-        UI.muted('ESC: закрыть  ·  /kh: открыть')
-    end
-    -- подпись разработчика: мелко и приглушённо, рядом с кнопкой «Закрыть»
-    local credit = 'Katrine Helper · qqwekky'
-    imgui.SameLine(imgui.GetWindowWidth() - S(122) - imgui.CalcTextSize(credit).x)
-    imgui.PushStyleColor(imgui.Col.Text, V4(C.muted.x, C.muted.y, C.muted.z, 0.55))
-    imgui.TextUnformatted(credit)
     imgui.PopStyleColor(1)
-    imgui.SameLine(imgui.GetWindowWidth() - S(110))
-    if UI.btn('Закрыть##m_close', true, S(96)) then W.menu[0] = false end
+    drawFooter()
     UI.drawConfirm()
     UI.rememberWindow('main')
     imgui.End()
+    imgui.PopStyleVar(1)
 end)
 
 -- Штраф использует то же окно выбора статьи и ту же проверку ID и ника, что и розыск

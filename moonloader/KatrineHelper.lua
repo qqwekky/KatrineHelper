@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта и в интерфейсе используется UTF-8.
 
-local VERSION = '1.3.1'
+local VERSION = '1.4.0'
 
 script_name('Katrine Helper')
 script_author('qqwekky')
@@ -1132,13 +1132,13 @@ D.LEGACY = {
 -------------------------------------------------------------------------------
 -- Конфиг: moonloader/config/KatrineHelper.json. Настройки прошлых версий переносятся.
 -------------------------------------------------------------------------------
-local CFG_VERSION = 12
+local CFG_VERSION = 13
 local DEFAULT_CFG = {
     cfg_version = CFG_VERSION,
     profile = { name = '', surname = '', rank = 'Сержант', dept = 'ЛСПД', female = false, unit = '' },
-    delay = 1300,
+    delay = 800,
     -- антифлуд: минимальная пауза между сообщениями в чат, мс; повтор строки после «Не флудите»
-    antiflood = { enabled = true, gap = 1800 },
+    antiflood = { enabled = false, gap = 1800 },
     rp = {},
     megaphone = U.copy(D.MEGA_DEFAULT),
     qsm = { '/r [QSM] {unit}: нужна помощь! Район: {zone}. CODE 3.' },
@@ -1172,11 +1172,14 @@ local DEFAULT_CFG = {
         info_widget = false, contacts = {}, contacts_show = false, houses = true, clicker = false, clicks = 0,
         last_sms = '', last_caller = '', imported = false, smark = '',
     },
+    -- снаряжение: AutoWeapon на складе (пункты по номеру в списке склада) и AutoBuy в 24/7
+    gear = { weapon = false, wpick = { ['3'] = true, ['4'] = true }, names = {}, buy_on = false, buy = { med = 0, mask = 0, repair = 0 } },
     notes = '',
     autologin = { enabled = false, password = '' },
     update = { auto = true, failed_sha = '', failed_version = '', retry_after = 0, last = '', last_result = '' },
     ui = {
         scale = 1.0,
+        theme = {},                   -- свои цвета интерфейса (Настройки → Оформление)
         main = { x = -1, y = -1, w = 1000, h = 660 },
         sus = { x = -1, y = -1, w = 860, h = 520 },
         ref = { x = -1, y = -1, w = 760, h = 560 },
@@ -1423,6 +1426,23 @@ local function migrate(c)
         CFG.rewrite = report
         c.cfg_version = 12
     end
+    if v < 13 then
+        -- 1.4.0: антифлуд убран, пауза отыгровки по умолчанию 800 мс; склад переехал на страницу «Снаряжение»
+        c.delay = 800
+        c.antiflood = type(c.antiflood) == 'table' and c.antiflood or {}
+        c.antiflood.enabled = false
+        local f = type(c.fbi) == 'table' and c.fbi or {}
+        c.gear = type(c.gear) == 'table' and c.gear or {}
+        if c.gear.weapon == nil then c.gear.weapon = f.fastweapon == true end
+        if type(c.gear.wpick) ~= 'table' then
+            -- раньше пункты 3 и 4 брались всегда, а оружие отмечалось по своему списку
+            local ids = { 0, 1, 5, 6, 7, 8, 9, 10, 11 }
+            local pick = { ['3'] = true, ['4'] = true }
+            for i, id in ipairs(ids) do pick[tostring(id)] = type(f.guns) == 'table' and f.guns[i] == true or false end
+            c.gear.wpick = pick
+        end
+        c.cfg_version = 13
+    end
     return c
 end
 
@@ -1503,7 +1523,11 @@ function CFG.load()
     end
     if type(cfg.update.pending) ~= 'table' then cfg.update.pending = nil end
     if type(cfg.ai.disabled) ~= 'table' then cfg.ai.disabled = {} end
-    cfg.delay = math.max(400, math.min(5000, tonumber(cfg.delay) or 1300))
+    cfg.delay = math.max(500, math.min(1300, math.floor(tonumber(cfg.delay) or 800)))
+    if type(cfg.gear.wpick) ~= 'table' then cfg.gear.wpick = {} end
+    if type(cfg.gear.names) ~= 'table' then cfg.gear.names = {} end
+    if type(cfg.ui.theme) ~= 'table' then cfg.ui.theme = {} end
+    for _, g in ipairs({ 'med', 'mask', 'repair' }) do cfg.gear.buy[g] = math.max(0, math.min(5, math.floor(tonumber(cfg.gear.buy[g]) or 0))) end
     cfg.antiflood.enabled = cfg.antiflood.enabled ~= false
     cfg.antiflood.gap = math.max(500, math.min(5000, math.floor(tonumber(cfg.antiflood.gap) or 1800)))
     cfg.ui.scale = math.max(0.7, math.min(1.8, tonumber(cfg.ui.scale) or 1))
@@ -4657,7 +4681,7 @@ local W = {
     menu = new.bool(false), sus = new.bool(false), quick = new.bool(false), run = new.bool(false), clicker = new.bool(false),
 }
 local UI = {
-    page = 'home', dirty = false, toast = nil, confirm = nil, dpi = 1, fontBold = nil, fontSmall = nil, fontTitle = nil,
+    page = 'officer', dirty = false, toast = nil, confirm = nil, dpi = 1, fontBold = nil, fontSmall = nil, fontTitle = nil,
     susTarget = -1, quickTarget = -1, quickNick = nil, runKey = nil, lawSel = nil, lawCache = { key = nil, list = {} },
     lawMode = 1, lawDoc = 0, lawFav = false, editRp = nil, rpCat = 'detain', refDept = 'common',
 }
@@ -4684,6 +4708,26 @@ local C = {
     btnHot  = V4(0.175, 0.198, 0.245, 1),
 }
 UI.C = C
+
+-- Цвета, которые игрок меняет в Настройки → Оформление. Остальные оттенки выводятся из них.
+UI.THEME = {
+    { 'bg', 'Фон окна' }, { 'panel', 'Фон панелей и навигации' }, { 'card', 'Фон карточек' }, { 'border', 'Рамки' },
+    { 'text', 'Текст' }, { 'muted', 'Подсказки и второстепенный текст' }, { 'accent', 'Акцент: галочки, ползунки, заголовки' },
+    { 'accent2', 'Основные кнопки' }, { 'btn', 'Обычные кнопки' },
+}
+UI.THEME_DEFAULT = {}
+for _, t in ipairs(UI.THEME) do local c = C[t[1]] UI.THEME_DEFAULT[t[1]] = { c.x, c.y, c.z, c.w } end
+function UI.applyTheme()
+    local th = (cfg and type(cfg.ui.theme) == 'table') and cfg.ui.theme or {}
+    for _, t in ipairs(UI.THEME) do
+        local k, d = t[1], UI.THEME_DEFAULT[t[1]]
+        local v = th[k]
+        if type(v) == 'table' and tonumber(v[1]) and tonumber(v[2]) and tonumber(v[3]) then C[k] = V4(v[1], v[2], v[3], d[4])
+        else C[k] = V4(d[1], d[2], d[3], d[4]) end
+    end
+    local b = C.btn
+    C.btnHot = V4(math.min(1, b.x + 0.045), math.min(1, b.y + 0.05), math.min(1, b.z + 0.065), 1)
+end
 
 local function U32(c, a) return imgui.GetColorU32Vec4(V4(c.x, c.y, c.z, a or c.w)) end
 UI.U32 = U32
@@ -4822,7 +4866,7 @@ local buf = {
     pass = new.char[64](), filter = new.char[1024](), mega = new.char[2048](), qsm = new.char[1024](), radio = new.char[2048](),
     qSum = new.char[16](), qReason = new.char[128](), refq = new.char[700](),
     rp = {}, rpOn = {}, binds = {}, runArgs = {},
-    delay = new.int(1300), scale = new.float(1.0),
+    delay = new.int(800), scale = new.float(1.0),
     female = new.bool(false), unit = new.char[32](), alOn = new.bool(false), filterOn = new.bool(false), upd = new.bool(true), radialOn = new.bool(true),
 }
 for i = 1, 4 do buf.runArgs[i] = new.char[160]() end
@@ -4875,7 +4919,7 @@ function UI.sync()
     buf.female[0] = p.female == true
     buf.delay[0] = cfg.delay; buf.scale[0] = cfg.ui.scale
     buf.alOn[0] = cfg.autologin.enabled; buf.filterOn[0] = cfg.filter.enabled
-    buf.upd[0] = cfg.update.auto; buf.radialOn[0] = cfg.radial.enabled
+    buf.upd[0] = cfg.update.auto
     setBuf(buf.pass, cfg.autologin.password)
     setBuf(buf.filter, U.joinLines(cfg.filter.words)); setBuf(buf.mega, U.joinLines(cfg.megaphone))
     setBuf(buf.qsm, U.joinLines(cfg.qsm)); setBuf(buf.radio, U.joinLines(cfg.radio))
@@ -4930,7 +4974,7 @@ function UI.apply()
     cfg.delay = buf.delay[0]
     cfg.ui.scale = math.max(0.7, math.min(1.8, buf.scale[0]))
     cfg.autologin.enabled = buf.alOn[0]; cfg.filter.enabled = buf.filterOn[0]
-    cfg.update.auto = buf.upd[0]; cfg.radial.enabled = buf.radialOn[0]
+    cfg.update.auto = buf.upd[0]
     cfg.autologin.password = getBuf(buf.pass)
     cfg.filter.words = U.splitLines(getBuf(buf.filter)); cfg.megaphone = U.splitLines(getBuf(buf.mega))
     cfg.qsm = U.splitLines(getBuf(buf.qsm)); cfg.radio = U.splitLines(getBuf(buf.radio))
@@ -4971,12 +5015,12 @@ function UI.applyStyle()
     c[K.TextDisabled]         = C.muted
     c[K.WindowBg]             = C.bg
     c[K.ChildBg]              = C.panel
-    c[K.PopupBg]              = V4(0.090, 0.100, 0.125, 0.99)
+    c[K.PopupBg]              = V4(C.bg.x + 0.02, C.bg.y + 0.025, C.bg.z + 0.03, 0.99)
     c[K.Border]               = C.border
     c[K.BorderShadow]         = V4(0, 0, 0, 0)
-    c[K.FrameBg]              = V4(0.120, 0.134, 0.165, 1)
-    c[K.FrameBgHovered]       = V4(0.150, 0.168, 0.207, 1)
-    c[K.FrameBgActive]        = V4(0.170, 0.190, 0.235, 1)
+    c[K.FrameBg]              = V4(C.card.x + 0.018, C.card.y + 0.02, C.card.z + 0.024, 1)
+    c[K.FrameBgHovered]       = V4(C.card.x + 0.048, C.card.y + 0.054, C.card.z + 0.066, 1)
+    c[K.FrameBgActive]        = V4(C.card.x + 0.068, C.card.y + 0.076, C.card.z + 0.094, 1)
     c[K.TitleBg]              = V4(0.075, 0.084, 0.104, 1)
     c[K.TitleBgActive]        = V4(0.090, 0.100, 0.125, 1)
     c[K.TitleBgCollapsed]     = V4(0.075, 0.084, 0.104, 1)
@@ -4990,9 +5034,9 @@ function UI.applyStyle()
     c[K.Button]               = C.btn
     c[K.ButtonHovered]        = C.btnHot
     c[K.ButtonActive]         = C.btn
-    c[K.Header]               = V4(0.20, 0.32, 0.54, 0.35)
-    c[K.HeaderHovered]        = V4(0.20, 0.32, 0.54, 0.55)
-    c[K.HeaderActive]         = V4(0.20, 0.32, 0.54, 0.75)
+    c[K.Header]               = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.35)
+    c[K.HeaderHovered]        = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.55)
+    c[K.HeaderActive]         = V4(C.accent2.x, C.accent2.y, C.accent2.z, 0.75)
     c[K.Separator]            = C.border
     c[K.ResizeGrip]           = V4(0.38, 0.56, 0.86, 0.15)
     c[K.ResizeGripHovered]    = V4(0.38, 0.56, 0.86, 0.50)
@@ -5026,6 +5070,7 @@ imgui.OnInitialize(function()
         end
         UI.fontSmall = io.Fonts:AddFontFromFileTTF(regular, math.floor(14 * fs), nil, UI.glyphs[0].Data)
     end
+    UI.applyTheme()
     UI.applyStyle()
 end)
 
@@ -6128,32 +6173,6 @@ function FBX.onShowDialog(id, style, title, b1, b2, text)
         FBX.answerLater(id, seq, 50, 1, 65535, '')
         return false
     end
-    if c.fastweapon and id == 175 then
-        local okA, armor = pcall(sampGetPlayerArmor, SA.myId())
-        if okA and armor and armor > 0 then log('FastWeapon: бронежилет уже надет, склад пропущен') return end
-        -- склад показывает диалог 175 повторно после каждого выбора: вторая серия не запускается поверх первой
-        if FBX.fwBusy and clock() - FBX.fwBusy < 6 then return false end
-        FBX.fwBusy = clock()
-        lua_thread.create(function()
-            local ok, err = pcall(function()
-                local function step(item)
-                    -- если за время ожидания открылся другой диалог (не склад), серия прерывается
-                    if FBX.dlg.id ~= 175 or not cfg.fbi.enabled then return false end
-                    sampSendDialogResponse(175, 1, item, '')
-                    wait(250)
-                    return true
-                end
-                wait(100)
-                if not (step(3) and step(4)) then return end
-                for i, g in ipairs(FBX.GUNS) do
-                    if c.guns[i] and not step(g[2]) then log('FastWeapon: прервано, открылся другой диалог') return end
-                end
-            end)
-            FBX.fwBusy = nil
-            if not ok then log('FastWeapon: ' .. tostring(err)) end
-        end)
-        return false
-    end
     if c.work_mode and id == 586 then
         FBX.answerLater(586, seq, 50, 1, 0, '')
         return false
@@ -6367,6 +6386,219 @@ end)
 
 
 -------------------------------------------------------------------------------
+-- Снаряжение (GEAR): AutoWeapon на складе (диалог 175) и AutoBuy в магазине 24/7.
+-- Работает отдельно от служебных функций. Названия пунктов склада хелпер запоминает
+-- при каждом открытии склада, поэтому в списке выбора стоят настоящие названия сервера.
+-------------------------------------------------------------------------------
+local GEAR = { dlg = { id = -1, seq = 0 }, busy = nil, buy = nil, logged = 0 }
+UI.GEAR = GEAR
+W.gear = imgui.new.bool(false)
+GEAR.STORE_ID = 175
+-- Пока склад ни разу не открывался: номера пунктов как в прежних версиях, названия 2 и 4 неизвестны
+GEAR.DEFAULT_NAMES = { [0] = 'Щит', 'Дубинка', 'Пункт склада 2', 'Бронежилет', 'Пункт склада 4', 'Desert Eagle', 'MP5', 'M4', 'Дробовик',
+    'Дымовые шашки', 'Снайперская винтовка', 'АК-47' }
+GEAR.GOODS = {
+    { key = 'med', title = 'Аптечки', find = { 'аптечк' } },
+    { key = 'mask', title = 'Маски', find = { 'маск' } },
+    { key = 'repair', title = 'Ремкомплекты', find = { 'ремкомплект', 'ремонтн', 'рем. комплект', 'ремнабор' } },
+}
+GEAR.BUY_TTL, GEAR.ANSWER_SEC = 20, 3
+
+local function lowerPlain(s) return U.lower(U.stripColors(U.toUtf(s or ''))) end
+
+-- Строки списка диалога: первая колонка, без цветов. У таблицы с заголовками первая строка — заголовки.
+function GEAR.listRows(style, text)
+    local rows = {}
+    local t = U.stripColors(U.toUtf(text or ''))
+    for line in (t .. '\n'):gmatch('(.-)\n') do rows[#rows + 1] = U.trim((line:gsub('\t.*$', ''))) end
+    if rows[#rows] == '' then table.remove(rows) end
+    if style == 5 then table.remove(rows, 1) end
+    return rows
+end
+
+function GEAR.names()
+    local n = {}
+    for i = 0, #GEAR.DEFAULT_NAMES do n[i] = GEAR.DEFAULT_NAMES[i] end
+    for k, v in pairs(cfg.gear.names or {}) do
+        local i = tonumber(k)
+        if i and type(v) == 'string' and v ~= '' then n[i] = v end
+    end
+    return n
+end
+function GEAR.maxIndex()
+    local m = #GEAR.DEFAULT_NAMES
+    for k in pairs(cfg.gear.names or {}) do local i = tonumber(k) if i and i > m then m = i end end
+    return m
+end
+
+function GEAR.picked()
+    local list = {}
+    for k, v in pairs(cfg.gear.wpick or {}) do if v == true and tonumber(k) then list[#list + 1] = tonumber(k) end end
+    table.sort(list)
+    return list
+end
+
+function GEAR.armorIndex()
+    for i, n in pairs(GEAR.names()) do if U.lower(n):find('бронеж', 1, true) then return i end end
+    return 3
+end
+
+-- Ответ на диалог с небольшой задержкой (из обработчика события сразу отвечать нельзя)
+function GEAR.respond(id, button, item, input, delay)
+    lua_thread.create(function()
+        wait(delay or 150)
+        sampSendDialogResponse(id, button, item, U.to1251(input or ''))
+    end)
+end
+
+-------------------------------------------------------------------------------
+-- AutoWeapon
+-------------------------------------------------------------------------------
+function GEAR.onStore(style, text)
+    local rows = GEAR.listRows(style, text)
+    if #rows > 0 then
+        local names, changed = {}, false
+        for i, r in ipairs(rows) do
+            if r ~= '' then names[tostring(i - 1)] = r; if (cfg.gear.names or {})[tostring(i - 1)] ~= r then changed = true end end
+        end
+        if changed then cfg.gear.names = names; FBX.save(); log('AutoWeapon: названия пунктов склада обновлены (' .. #rows .. ')') end
+    end
+    if not cfg.gear.weapon then return end
+    -- склад показывает диалог снова после каждого выбора: вторая серия поверх первой не запускается
+    if GEAR.busy and clock() - GEAR.busy < 6 then return false end
+    local list = GEAR.picked()
+    if #list == 0 then return end
+    local okA, armor = pcall(sampGetPlayerArmor, SA.myId())
+    local skip = (okA and armor and armor > 0) and GEAR.armorIndex() or nil
+    GEAR.busy = clock()
+    lua_thread.create(function()
+        local ok, err = pcall(function()
+            wait(100)
+            for _, item in ipairs(list) do
+                if item ~= skip then
+                    if GEAR.dlg.id ~= GEAR.STORE_ID then log('AutoWeapon: прервано, открылся другой диалог') return end
+                    sampSendDialogResponse(GEAR.STORE_ID, 1, item, '')
+                    wait(250)
+                end
+            end
+            if skip then log('AutoWeapon: бронежилет уже надет, его пункт пропущен') end
+        end)
+        GEAR.busy = nil
+        if not ok then log('AutoWeapon: ' .. tostring(err)) end
+    end)
+    return false
+end
+
+-------------------------------------------------------------------------------
+-- AutoBuy в 24/7. Магазин узнаётся по «24/7» в заголовке или тексте диалога-списка, товары по названию.
+-- Выбор товара, затем ответ на следующий диалог: количество (поле ввода) или подтверждение.
+-- Каждый диалог магазина пишется в helper.log, чтобы по нему можно было донастроить покупку.
+-------------------------------------------------------------------------------
+function GEAR.isShop(style, title, text)
+    if style ~= 2 and style ~= 4 and style ~= 5 then return false end
+    return lowerPlain((title or '') .. ' ' .. (text or '')):find('24/7', 1, true) ~= nil
+end
+
+function GEAR.wantAny()
+    for _, g in ipairs(GEAR.GOODS) do if (tonumber(cfg.gear.buy[g.key]) or 0) > 0 then return true end end
+    return false
+end
+
+function GEAR.plan(rows)
+    local plan = {}
+    for _, g in ipairs(GEAR.GOODS) do
+        local n = math.floor(tonumber(cfg.gear.buy[g.key]) or 0)
+        if n > 0 then
+            for i, r in ipairs(rows) do
+                local low = U.lower(r)
+                local hit = false
+                for _, f in ipairs(g.find) do if low:find(f, 1, true) then hit = true end end
+                if hit then plan[#plan + 1] = { idx = i - 1, title = g.title, left = n, total = n } break end
+            end
+        end
+    end
+    return plan
+end
+
+function GEAR.onShop(id, style, title, text)
+    if not cfg.gear.buy_on or not GEAR.wantAny() then return end
+    local b = GEAR.buy
+    if b and clock() - b.t > GEAR.BUY_TTL then
+        log('AutoBuy: покупка не завершилась за ' .. GEAR.BUY_TTL .. ' с, сброшено')
+        GEAR.buy, b = nil, nil
+    end
+    local shop = GEAR.isShop(style, title, text)
+    if shop and GEAR.logged < 12 then
+        GEAR.logged = GEAR.logged + 1
+        log('AutoBuy: диалог магазина id=' .. tostring(id) .. ' стиль=' .. tostring(style) .. ' «' .. U.cut(U.stripColors(U.toUtf(text or '')):gsub('\n', ' | '), 160) .. '»')
+    end
+    -- ответ магазина на наш выбор: количество или подтверждение
+    if b and b.cur and b.waiting and clock() - b.waiting < GEAR.ANSWER_SEC and not shop then
+        if style == 1 or style == 3 then
+            local n = b.cur.left + 1
+            b.cur.left, b.waiting, b.t = 0, clock(), clock()
+            GEAR.respond(id, 1, -1, tostring(n))
+            return false
+        elseif style == 0 then
+            b.waiting, b.t = clock(), clock()
+            GEAR.respond(id, 1, -1, '')
+            return false
+        end
+    end
+    if not shop then return end
+    if not b then
+        local plan = GEAR.plan(GEAR.listRows(style, text))
+        if #plan == 0 then log('AutoBuy: в списке магазина нет выбранных товаров') return end
+        b = { t = clock(), plan = plan }
+        GEAR.buy = b
+    end
+    for _, e in ipairs(b.plan) do
+        if e.left > 0 then
+            e.left = e.left - 1
+            b.cur, b.waiting, b.t = e, clock(), clock()
+            GEAR.respond(id, 1, e.idx, '')
+            return false
+        end
+    end
+    -- всё куплено: закрываем магазин
+    local done = {}
+    for _, e in ipairs(b.plan) do done[#done + 1] = e.title .. ' ' .. e.total end
+    log('AutoBuy: куплено ' .. table.concat(done, ', '))
+    GEAR.buy = nil
+    GEAR.respond(id, 0, -1, '')
+    return false
+end
+
+-- Все диалоги проходят сюда раньше служебных функций
+function GEAR.onShowDialog(id, style, title, b1, b2, text)
+    GEAR.dlg.seq = GEAR.dlg.seq + 1
+    GEAR.dlg.id = id
+    if id == GEAR.STORE_ID then return GEAR.onStore(style, text) end
+    return GEAR.onShop(id, style, title, text)
+end
+
+-------------------------------------------------------------------------------
+-- Окно выбора снаряжения
+-------------------------------------------------------------------------------
+imgui.OnFrame(function() return cfg ~= nil and W.gear[0] and UI.overlayFree() end, function()
+    UI.placeWindow('gear', 360, 460)
+    imgui.Begin('Снаряжение со склада##gear', W.gear, imgui.WindowFlags.NoCollapse)
+    UI.muted(next(cfg.gear.names or {}) and 'Названия взяты со склада сервера.' or 'Названия уточнятся, когда вы откроете склад.')
+    local names = GEAR.names()
+    for i = 0, GEAR.maxIndex() do
+        local key = tostring(i)
+        local b = UI.cfgBools['gear' .. key] or imgui.new.bool(false)
+        UI.cfgBools['gear' .. key] = b
+        b[0] = cfg.gear.wpick[key] == true
+        if imgui.Checkbox((names[i] or ('Пункт ' .. i)) .. '##gw' .. key, b) then cfg.gear.wpick[key] = b[0]; FBX.save() end
+    end
+    imgui.Spacing()
+    if UI.btn('Готово##gear_ok', true, -1, 0, 'primary') then W.gear[0] = false end
+    UI.rememberWindow('gear')
+    imgui.End()
+end)
+
+-------------------------------------------------------------------------------
 -- Главное меню: страницы
 -------------------------------------------------------------------------------
 -- Переключатели, которые сразу пишутся в конфиг (без кнопки «Сохранить»)
@@ -6410,18 +6642,19 @@ end
 local PG = {}
 -- Навигация: группы и страницы
 local NAV = {
-    { group = 'Работа' },
-    { id = 'home', title = 'Главная' },
-    { id = 'ref', title = 'Справочник' },
-    { id = 'laws', title = 'Законы' },
-    { id = 'patrol', title = 'Патруль' },
-    { group = 'Действия' },
+    { group = 'Служба' },
+    { id = 'officer', title = 'Офицер' },
+    { id = 'patrol', title = 'Патруль и доклады' },
+    { id = 'gear', title = 'Снаряжение' },
+    { group = 'Отыгровки' },
     { id = 'binds', title = 'Биндер' },
     { id = 'radial', title = 'Радиальное меню' },
+    { group = 'Законы' },
+    { id = 'ref', title = 'Справочник ИИ' },
+    { id = 'laws', title = 'Поиск по законам' },
     { group = 'Прочее' },
     { id = 'fbi', title = 'Служебные функции' },
     { id = 'notes', title = 'Заметки' },
-    { id = 'profile', title = 'Профиль' },
     { id = 'settings', title = 'Настройки' },
 }
 UI.NAV = NAV
@@ -6810,6 +7043,43 @@ function PG.profile()
 end
 
 
+-- Офицер: сводка и профиль (имя, звание, подразделение, позывной, пол) на одной странице
+function PG.officer()
+    local pr = cfg.profile
+    UI.cardBegin('##off_state', S(78))
+    UI.bold((pr.rank ~= '' and (pr.rank .. ' ') or '') .. RP.fullName(), C.text)
+    UI.muted((D.DEPT_FULL[pr.dept] or pr.dept) .. ((pr.unit or '') ~= '' and ('   ·   позывной ' .. pr.unit) or ''))
+    if PAT.active then UI.pill('Патруль ' .. mmss(clock() - PAT.since), C.good) else UI.pill('Вне патруля', C.muted) end
+    imgui.SameLine()
+    UI.pill(cfg.gear.weapon and 'AutoWeapon: вкл' or 'AutoWeapon: выкл', cfg.gear.weapon and C.accent or C.muted)
+    imgui.SameLine()
+    UI.pill(cfg.gear.buy_on and 'AutoBuy: вкл' or 'AutoBuy: выкл', cfg.gear.buy_on and C.accent or C.muted)
+    imgui.SameLine()
+    if L.loaded then UI.pill('Законы: ' .. #L.flat, C.accent) else UI.pill('Законы не загружены', C.bad) end
+    UI.cardEnd()
+    UI.section('Данные офицера')
+    PG.profile()
+end
+
+-- Снаряжение: AutoWeapon (склад) и AutoBuy (24/7)
+function PG.gear()
+    local g = cfg.gear
+    UI.section('AutoWeapon: склад')
+    UI.cfgCheck('Брать снаряжение на складе автоматически##g_w', g, 'weapon', 'Когда открывается склад (диалог 175), хелпер сам выбирает отмеченные пункты. Если бронежилет уже надет, его пункт пропускается. В чат ничего не пишется.')
+    if UI.btn('Выбрать оружие и бронежилет##g_pick', true, S(280), 0, 'primary') then W.gear[0] = true end
+    local names, chosen = UI.GEAR.names(), {}
+    for _, i in ipairs(UI.GEAR.picked()) do chosen[#chosen + 1] = names[i] or ('пункт ' .. i) end
+    UI.muted(#chosen > 0 and ('Выбрано: ' .. table.concat(chosen, ', ')) or 'Ничего не выбрано.')
+
+    UI.section('AutoBuy: магазин 24/7')
+    UI.cfgCheck('Покупать в 24/7 автоматически##g_b', g, 'buy_on', 'Когда вы открываете магазин 24/7, хелпер сам покупает отмеченное количество. Товары ищутся по названию в списке магазина. Каждый диалог магазина записывается в helper.log.')
+    for _, good in ipairs(UI.GEAR.GOODS) do
+        UI.muted(good.title)
+        UI.cfgSliderInt('g_buy_' .. good.key, g.buy, good.key, 0, 5, '%d шт.')
+    end
+    UI.muted('0 шт.: товар не покупается. Покупка не трогает другие товары и закрывает магазин, когда всё куплено.')
+end
+
 -- Биндер: слева список (свои бинды, все команды хелпера, фразы), справа редактор выбранного.
 -- Тексты команд (/cuff, /mir …) и свои бинды правятся в одном месте и сохраняются кнопкой «Сохранить».
 UI.bsel = UI.bsel or { kind = 'cmd', key = 'cuff' }
@@ -7091,7 +7361,6 @@ function PG.fbi()
     UI.section('Автоматизация')
     UI.cfgCheck('Auto /ad: повторять своё объявление после публикации##fb_aad', c, 'auto_ad')
     UI.cfgCheck('Auto /up: поднимать объявление и закрывать окна очереди##fb_aup', c, 'auto_up')
-    UI.cfgCheck('Переносить длинный текст (чат, /me, /do) на несколько строк##fb_em', c, 'extra_msg', 'Если у вас есть отдельный скрипт переноса, оставьте выключенным.')
     UI.cfgCheck('AutoReset: /reset, когда маска скрыла вас на GPS##fb_ar', c, 'autoreset')
     UI.cfgCheck('Снимать наушники (/head)##fb_head', c, 'head_auto')
     UI.cfgCheck('AutoBenz: подтверждать заправку##fb_ab', c, 'autobenz')
@@ -7099,15 +7368,6 @@ function PG.fbi()
     UI.cfgCheck('Данные диспетчера: метка по делу на клавишу 3 в машине##fb_dsp', c, 'dispatch')
     UI.cfgCheck('Кнопка FIX в радиальном меню (в пункте «Мои бинды»)##fb_fix', c, 'fix_radial')
     UI.cfgCheck('Круиз-контроль: «=» включить, W запомнить скорость, S выключить##fb_cr', c, 'cruise')
-    UI.section('Склад ФБР (FastWeapon)')
-    UI.cfgCheck('Брать снаряжение на складе автоматически (диалог 175)##fb_fw', c, 'fastweapon', 'Если на вас бронежилет, склад не трогается. Номера пунктов склада проверьте на сервере.')
-    for i, g in ipairs(FBX.GUNS) do
-        if (i - 1) % 3 ~= 0 then imgui.SameLine() end
-        local b = UI.cfgBools['gun' .. i] or imgui.new.bool(false)
-        UI.cfgBools['gun' .. i] = b
-        b[0] = c.guns[i] == true
-        if imgui.Checkbox(g[1] .. '##gun' .. i, b) then c.guns[i] = b[0]; FBX.save() end
-    end
     UI.section('Телефон')
     UI.cfgCheck('Отвечать на вызов клавишами##fb_pk', c, 'phone_keys')
     UI.muted('Принять')
@@ -7146,23 +7406,16 @@ function PG.notes()
 end
 
 -- Настройки -------------------------------------------------------------------
+UI.themeBufs = {}
 function PG.settings()
     UI.section('Общие')
-    UI.muted('Пауза между строками отыгровки, мс')
+    UI.muted('Пауза между строками отыгровки, мс (стандартно 800)')
     imgui.SetNextItemWidth(-1)
-    if imgui.SliderInt('##st_delay', UI.buf.delay, 500, 3000) then UI.dirty = true end
+    if imgui.SliderInt('##st_delay', UI.buf.delay, 500, 1300, '%d мс') then UI.dirty = true end
     UI.cfgCheck('Переносить длинный текст на несколько строк (/wrap)##st_wrap', cfg.fbi, 'extra_msg', 'Сообщение длиннее лимита сервера делится на части с «...» в конце и в начале: обычный чат, /me, /do, /r, /f, /m, /s, /n. Части идут с паузой антифлуда. Команда /wrap включает и выключает.')
     if cfg.fbi.extra_msg then
         UI.muted('Длина одной части, символов (с командой)')
         UI.cfgSliderInt('st_wraplen', cfg.fbi, 'extra_len', 60, 120)
-    end
-    UI.cfgCheck('Антифлуд##st_af', cfg.antiflood, 'enabled', 'Пауза между любыми сообщениями не меньше порога. Строку, на которую сервер ответил «Не флудите», хелпер отправит ещё раз и сам увеличит паузу.')
-    if cfg.antiflood.enabled then
-        UI.muted('Минимальная пауза между сообщениями в чат, мс')
-        UI.cfgSliderInt('st_afgap', cfg.antiflood, 'gap', 1000, 4000)
-        if AF.floods > 0 then
-            UI.muted(('За сессию: «Не флудите» %d раз, повторено строк: %d, сейчас пауза +%.1f с.'):format(AF.floods, AF.resent, AF.extra / 1000))
-        end
     end
     UI.muted('Масштаб интерфейса (шрифт применится после перезапуска скрипта)')
     imgui.SetNextItemWidth(-1)
@@ -7171,7 +7424,7 @@ function PG.settings()
     UI.area('filter', UI.buf.filter, 60)
 
     UI.section('Клавиши')
-    UI.check('Радиальное меню на колёсике мыши##st_rad', UI.buf.radialOn)
+    UI.muted('Радиальное меню на колёсике включается на странице «Радиальное меню».')
     UI.muted('Показать или скрыть курсор (также команда /cursor)')
     imgui.SetNextItemWidth(S(160))
     if imgui.BeginCombo('##st_ckey', UI.edit.cursorKey) then
@@ -7181,6 +7434,23 @@ function PG.settings()
         imgui.EndCombo()
     end
 
+    UI.section('Оформление')
+    UI.muted('Цвета применяются сразу. Размер шрифта и окон: «Масштаб интерфейса» выше.')
+    for _, t in ipairs(UI.THEME) do
+        local key = t[1]
+        local fb = UI.themeBufs[key]
+        if not fb then fb = imgui.new.float[3](); UI.themeBufs[key] = fb end
+        local col = C[key]
+        fb[0], fb[1], fb[2] = col.x, col.y, col.z
+        if imgui.ColorEdit3(t[2] .. '##th_' .. key, fb, imgui.ColorEditFlags.NoInputs) then
+            cfg.ui.theme[key] = { fb[0], fb[1], fb[2] }
+            UI.applyTheme(); UI.applyStyle(); FBX.save()
+        end
+    end
+    if UI.btn('Вернуть стандартные цвета##th_def', next(cfg.ui.theme) ~= nil) then
+        cfg.ui.theme = {}
+        UI.applyTheme(); UI.applyStyle(); FBX.save()
+    end
     UI.section('ИИ справочника')
     local was = cfg.ai.enabled
     UI.cfgCheck('Отвечать на вопросы через ИИ##st_ai', cfg.ai, 'enabled', 'Выключено: справочник показывает только выдержки из базы законов.')
@@ -7271,7 +7541,7 @@ for _, n in ipairs(NAV) do if n.id then PG.ORDER[n.id] = PG[n.id] end end
 -------------------------------------------------------------------------------
 UI.pageError = nil
 -- Страницы, где изменения применяются кнопкой «Сохранить»; на остальных всё пишется сразу
-UI.SAVE_PAGES = { binds = true, profile = true, settings = true }
+UI.SAVE_PAGES = { binds = true, officer = true, settings = true }
 
 local function drawHeader()
     local dl = imgui.GetWindowDrawList()
@@ -7781,6 +8051,8 @@ end
 local loginSent = false
 function sampev.onShowDialog(id, style, title, b1, b2, text)
     if not cfg then return end
+    local okG, gr = pcall(UI.GEAR.onShowDialog, id, style, title, b1, b2, text)
+    if not okG then log('снаряжение: ' .. tostring(gr)) elseif gr == false then return false end
     local okF, fr = pcall(FBX.onShowDialog, id, style, title, b1, b2, text)
     if not okF then log('служебные диалоги: ' .. tostring(fr)) elseif fr == false then return false end
     if cfg.autologin.enabled and cfg.autologin.password ~= '' and style == 3 and not loginSent then

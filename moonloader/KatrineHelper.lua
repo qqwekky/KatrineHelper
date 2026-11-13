@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта и в интерфейсе используется UTF-8.
 
-local VERSION = '1.3.0'
+local VERSION = '1.3.1'
 
 script_name('Katrine Helper')
 script_author('qqwekky')
@@ -6226,8 +6226,8 @@ function FBX.splitting()
 end
 
 -- Перенос работает сам по себе (без служебных функций): тумблер в Настройках и команда /wrap.
--- Делятся обычный чат и команды, где текст идёт после команды: /me /do /r /f /m /s /b.
-FBX.SPLIT_CMDS = { me = true, ['do'] = true, r = true, f = true, m = true, s = true, b = true }
+-- Делятся обычный чат и команды, где текст идёт после команды: /me /do /r /f /m /s /n (НонРП).
+FBX.SPLIT_CMDS = { me = true, ['do'] = true, r = true, f = true, m = true, s = true, n = true }
 function FBX.maxLen() return math.max(40, math.min(120, math.floor(tonumber(cfg.fbi.extra_len) or FBX.MAXLEN))) end
 function FBX.onSendChat(m)
     if not cfg.fbi.extra_msg or FBX.splitting() then return end
@@ -7151,7 +7151,7 @@ function PG.settings()
     UI.muted('Пауза между строками отыгровки, мс')
     imgui.SetNextItemWidth(-1)
     if imgui.SliderInt('##st_delay', UI.buf.delay, 500, 3000) then UI.dirty = true end
-    UI.cfgCheck('Переносить длинный текст на несколько строк (/wrap)##st_wrap', cfg.fbi, 'extra_msg', 'Сообщение длиннее лимита сервера делится на части с «...» в конце и в начале: обычный чат, /me, /do, /r, /f, /m, /s, /b. Части идут с паузой антифлуда. Команда /wrap включает и выключает.')
+    UI.cfgCheck('Переносить длинный текст на несколько строк (/wrap)##st_wrap', cfg.fbi, 'extra_msg', 'Сообщение длиннее лимита сервера делится на части с «...» в конце и в начале: обычный чат, /me, /do, /r, /f, /m, /s, /n. Части идут с паузой антифлуда. Команда /wrap включает и выключает.')
     if cfg.fbi.extra_msg then
         UI.muted('Длина одной части, символов (с командой)')
         UI.cfgSliderInt('st_wraplen', cfg.fbi, 'extra_len', 60, 120)

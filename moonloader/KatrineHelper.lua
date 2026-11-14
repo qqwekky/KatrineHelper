@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта и в интерфейсе используется UTF-8.
 
-local VERSION = '1.5.1'
+local VERSION = '1.5.3'
 
 script_name('Katrine Helper')
 script_author('qqwekky')
@@ -1165,7 +1165,7 @@ local DEFAULT_CFG = {
     },
     fbi = {
         enabled = true, rtag = '', ftag = '', work_mode = false,
-        hide_f = false, hide_g = false, hide_p = false, hide_ad = false, hide_food = false, head_auto = false,
+        hide_f = false, hide_g = false, hide_p = false, hide_ad = false, head_auto = false,
         auto_ad = false, auto_up = false, extra_msg = true, extra_len = 88, autoreset = false, fix_radial = false,
         cruise = false, fastweapon = false, guns = { false, false, false, false, false, false, false, false, false },
         autobenz = false, phone_keys = false, phone_yes = 'Y', phone_no = 'N', phone_rp = true, sms_reply = true, dispatch = true, online = true,
@@ -6796,7 +6796,6 @@ function FBX.onServerMessage(color, t)
     if c.hide_g and plain:find('[G]', 1, true) then return false end
     if c.hide_p and (plain:find(' Агитатор ', 1, true) or plain:find(' Волонтёр ', 1, true)) then return false end
     if c.work_mode then for _, j in ipairs(FBX.JOBS_F) do if plain:find(j, 1, true) then return false end end end
-    if c.hide_food then for _, w in ipairs(FBX.FOOD) do if plain:find(w, 1, true) then return false end end end
     if c.head_auto and plain:find('Чтобы убрать наушники, введите', 1, true) then lua_thread.create(function() wait(300) sampSendChat('/head') end) end
     if c.autoreset and plain:find('месторасположение на GPS скрыто', 1, true) then lua_thread.create(function() wait(400) sampSendChat('/reset') end) end
     -- SMS: запоминаем номер для {sms} и автоответчика
@@ -7213,7 +7212,8 @@ end
 -- После выбора товара сервер показывает список количества: заголовок «У вас 0 из 5 аптечек»,
 -- строки «1 аптечка за 450$», «2 аптечки за 900$»... Хелпер докупает до числа из настроек:
 -- нужно = выбрано − уже есть, и выбирает строку с этим числом (или самую большую, что меньше).
--- Если докупать нечего, жмёт «Назад». Поле ввода и подтверждение тоже поддерживаются.
+-- Если докупать нечего, жмёт «Назад». Вместе с номером строки уходит её текст, как при выборе мышью:
+-- сервер берёт число из текста («5 аптечек за 2250$» → 5), с пустым текстом пишет «не валидное число». Поле ввода и подтверждение тоже поддерживаются.
 -- Каждый диалог магазина пишется в helper.log, чтобы по нему можно было донастроить покупку.
 -------------------------------------------------------------------------------
 function GEAR.isShop(style, title, text)
@@ -7235,7 +7235,7 @@ function GEAR.plan(rows)
                 local low = U.lower(r)
                 local hit = false
                 for _, f in ipairs(g.find) do if low:find(f, 1, true) then hit = true end end
-                if hit then plan[#plan + 1] = { idx = i - 1, title = g.title, key = g.key, want = n, left = 1, got = nil } break end
+                if hit then plan[#plan + 1] = { idx = i - 1, row = r, title = g.title, key = g.key, want = n, left = 1, got = nil } break end
             end
         end
     end
@@ -7257,7 +7257,7 @@ function GEAR.qtyRow(rows, need)
         local n = tonumber(r:match('^%s*(%d+)'))
         if n and n <= need and (not bestN or n > bestN) then best, bestN = i - 1, n end
     end
-    return best, bestN
+    return best, bestN, best and rows[best + 1]
 end
 
 function GEAR.onShop(id, style, title, text)
@@ -7280,12 +7280,12 @@ function GEAR.onShop(id, style, title, text)
         local need = math.max(0, e.want - (have or 0))
         b.waiting, b.t = clock(), clock()
         if style == 2 or style == 4 or style == 5 then
-            local idx, n = GEAR.qtyRow(GEAR.listRows(style, text), need)
+            local idx, n, row = GEAR.qtyRow(GEAR.listRows(style, text), need)
             b.waiting = nil
             if idx then
                 e.got = n
                 log('AutoBuy: ' .. e.title .. ': есть ' .. tostring(have or '?') .. ', нужно ' .. e.want .. ', беру ' .. n)
-                GEAR.respond(id, 1, idx, '')
+                GEAR.respond(id, 1, idx, row)
             else
                 e.got = 0
                 log('AutoBuy: ' .. e.title .. ': уже есть ' .. tostring(have or '?') .. ' из нужных ' .. e.want)
@@ -7313,7 +7313,7 @@ function GEAR.onShop(id, style, title, text)
         if e.left > 0 then
             e.left = e.left - 1
             b.cur, b.waiting, b.t = e, clock(), clock()
-            GEAR.respond(id, 1, e.idx, '')
+            GEAR.respond(id, 1, e.idx, e.row or '')
             return false
         end
     end
@@ -7635,6 +7635,12 @@ function PG.patrol()
             UI.cfgCheck('Скриншот после доклада (/c 60 и F8)##pt_sc', pt, 'screens', 'После доклада в начале, после каждого 10-21 и в конце: /c 60 открывает службу точного времени, хелпер делает скриншот SA-MP (F8) и закрывает диалог. Сообщения хелпера на это время придерживаются.')
             if pt.screens then UI.hint('Папка: ' .. PAT.screensDir()) end
             UI.hint('Доклады уходят, когда вы не печатаете, нет диалога и не идёт отыгровка.')
+        end, { w = w })
+        imgui.Spacing()
+        UI.box('pat_widget', 'Инфо-виджет', function()
+            UI.cfgCheck('Показывать инфо-виджет (/vid)##pt_iw', cfg.fbi, 'info_widget', 'Маленькое окно поверх игры: ник, район, квадрат карты, время. Перетаскивается мышью, положение запоминается.')
+            if cfg.fbi.info_widget and not cfg.fbi.enabled then UI.colored(C.warn, 'Виджет работает, когда включены служебные функции (страница «Служебные функции»).') end
+            UI.hint('Ник, район, квадрат карты и время в небольшом окне поверх игры.')
         end, { w = w })
     end, function(w)
         UI.box('pat_txt', 'Тексты докладов', function()
@@ -8382,7 +8388,7 @@ end
 
 -- Служебные функции: вкладки по задачам ------------------------------------------
 UI.fbiTab = UI.fbiTab or 'radio'
-local FBI_TABS = { { 'radio', 'Рация' }, { 'chat', 'Фильтры чата' }, { 'auto', 'Автоматизация' }, { 'phone', 'Телефон' }, { 'widgets', 'Виджеты' }, { 'house', 'Дом и команды' } }
+local FBI_TABS = { { 'radio', 'Рация' }, { 'chat', 'Фильтры чата' }, { 'auto', 'Автоматизация' }, { 'phone', 'Телефон' }, { 'widgets', 'Контакты' }, { 'house', 'Дом и команды' } }
 
 local LETTERS = { 'Y', 'N', 'U', 'J', 'I', 'K', 'O', 'L', 'P', 'H', 'B', 'V', 'X', 'Z', 'C', 'R', 'E', 'Q', 'M', 'NUMPAD1', 'NUMPAD2', 'NUMPAD0', 'ADD', 'SUBTRACT' }
 local function keyCombo(id, tbl, key, other)
@@ -8414,7 +8420,6 @@ function PG.fbi()
             local half = S(230)
             UI.cfgFlag('[F] общая волна##fb_hf', c, 'hide_f'); imgui.SameLine(half); UI.cfgFlag('[G] спецрация##fb_hg', c, 'hide_g')
             UI.cfgFlag('[P] партии##fb_hp', c, 'hide_p'); imgui.SameLine(half); UI.cfgFlag('Объявления /ad##fb_ha', c, 'hide_ad')
-            UI.cfgFlag('Сообщения столовой##fb_hfood', c, 'hide_food')
             UI.hint('Свой список слов для скрытия: Настройки → Основные.')
         elseif t == 'auto' then
             UI.cfgCheck('Auto /ad: повторять своё объявление##fb_aad', c, 'auto_ad')
@@ -8435,7 +8440,7 @@ function PG.fbi()
             UI.hint('Последний номер SMS: ' .. (c.last_sms ~= '' and c.last_sms or 'нет') .. '   ·   звонивший: ' .. (c.last_caller ~= '' and c.last_caller or 'неизвестен'))
             for _, k in ipairs(UI.keyConflicts and UI.keyConflicts() or {}) do UI.colored(C.bad, k) end
         elseif t == 'widgets' then
-            UI.cfgCheck('Инфо-виджет: ник, район, квадрат, время (/vid)##fb_iw', c, 'info_widget')
+            UI.hint('Инфо-виджет (ник, район, квадрат, время) теперь на странице «Патруль и доклады».')
             UI.cfgCheck('Контакты онлайн (/ts2)##fb_cs', c, 'contacts_show')
             UI.label('Ники контактов через запятую (Имя_Фамилия)')
             local cb = UI.cfgTexts.fb_ct

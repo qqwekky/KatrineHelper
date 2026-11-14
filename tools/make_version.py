@@ -9,9 +9,12 @@ import re
 root = pathlib.Path(__file__).resolve().parent.parent
 script = root / 'moonloader' / 'KatrineHelper.lua'
 data = script.read_bytes()
-m = re.search(rb"local VERSION = '([0-9.]+)'", data)
+# Версия берётся по метке: она лежит простым текстом и в исходнике, и в скомпилированном файле
+m = re.search(rb"\[Katrine Helper v([0-9.]+)\]", data)
 if not m:
-    raise SystemExit('В KatrineHelper.lua не найдена строка local VERSION')
+    m = re.search(rb"local VERSION = '([0-9.]+)'", data)
+if not m:
+    raise SystemExit('В KatrineHelper.lua не найдена версия')
 info = {
     'version': m.group(1).decode(),
     'size': len(data),

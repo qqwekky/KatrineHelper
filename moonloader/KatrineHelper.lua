@@ -2,7 +2,7 @@
 -- Файл в кодировке UTF-8. Всё, что уходит в чат сервера, перекодируется в CP1251.
 -- Внутри скрипта и в интерфейсе используется UTF-8.
 
-local VERSION = '1.5.0'
+local VERSION = '1.5.1'
 
 script_name('Katrine Helper')
 script_author('qqwekky')
@@ -5649,8 +5649,25 @@ function BGX.loadTex(path)
     if not okT or tex == nil then return nil, 'картинку не удалось открыть' end
     return { tex = tex, w = w, h = h }
 end
+-- Текстура могла уже попасть в список рисования текущего кадра. Освобождать её сразу нельзя:
+-- видеокарта нарисует уже удалённую текстуру, и игра упадёт. Поэтому текстура сначала уходит
+-- в корзину (ссылка держится, сборщик мусора её не тронет), а освобождается в начале следующего кадра.
+BGX.trash = {}
 function BGX.release(t)
-    if t and t.tex then pcall(imgui.ReleaseTexture, t.tex); t.tex = nil end
+    if t and t.tex then BGX.trash[#BGX.trash + 1] = t end
+end
+function BGX.flush()
+    if #BGX.trash == 0 then return end
+    local list = BGX.trash
+    BGX.trash = {}
+    for _, t in ipairs(list) do
+        if t.tex then pcall(imgui.ReleaseTexture, t.tex); t.tex = nil end
+    end
+end
+function BGX.dropThumb(id)
+    local t = BGX.thumbs[id]
+    if t then BGX.release(t) end
+    BGX.thumbs[id] = nil
 end
 
 -- Список фонов: стандартные и свои (папка backgrounds/custom)
@@ -5697,7 +5714,7 @@ function BGX.fetch(e, cb)
         left = left - 1
         if left == 0 then
             BGX.fetching[e.id] = nil
-            BGX.thumbs[e.id] = nil
+            BGX.dropThumb(e.id)
             if okAll and BGX.cfg().id == e.id then BGX.curId = false end
             if cb then cb(okAll) end
         end
@@ -5728,7 +5745,7 @@ function BGX.removeCustom(e)
     if not e or not e.custom then return end
     os.remove(e.path)
     BGX.list = nil
-    BGX.thumbs[e.id] = nil
+    BGX.dropThumb(e.id)
     local b = BGX.cfg()
     if b.id == e.id then b.id = BGX.DEF.id; UI.FBX.save() end
 end
@@ -5802,6 +5819,8 @@ end
 
 -- Рисуется сразу после Begin главного окна: под всеми панелями и элементами
 function BGX.draw()
+    -- текстуры, убранные в прошлом кадре, уже нарисованы: теперь их можно освободить
+    BGX.flush()
     local okU, errU = pcall(BGX.update)
     if not okU then log('фон: ' .. tostring(errU)); BGX.cur, BGX.prev = nil, nil end
     UI.KIT.bgShown = true
@@ -7093,8 +7112,8 @@ local GEAR = { dlg = { id = -1, seq = 0 }, busy = nil, buy = nil, logged = 0 }
 UI.GEAR = GEAR
 W.gear = imgui.new.bool(false)
 GEAR.STORE_ID = 175
--- Пока склад ни разу не открывался: номера пунктов как в прежних версиях, названия 2 и 4 неизвестны
-GEAR.DEFAULT_NAMES = { [0] = 'Щит', 'Дубинка', 'Пункт склада 2', 'Бронежилет', 'Пункт склада 4', 'Desert Eagle', 'MP5', 'M4', 'Дробовик',
+-- Склад ЛСПД, СФПД и ЛВПД (пункты 1–10). У ФБР пунктов больше: названия берутся со склада при открытии.
+GEAR.DEFAULT_NAMES = { [0] = 'Щит', 'Дубинка', 'Пистолет с глушителем 9 мм', 'Бронежилет', 'Маска', 'Desert Eagle', 'MP5', 'M4', 'Дробовик',
     'Дымовые шашки', 'Снайперская винтовка', 'АК-47' }
 GEAR.GOODS = {
     { key = 'med', title = 'Аптечки', find = { 'аптечк' } },
@@ -7158,6 +7177,7 @@ function GEAR.onStore(style, text)
     if #rows > 0 then
         local names, changed = {}, false
         for i, r in ipairs(rows) do
+            r = r:gsub('^%d+[%.%)]%s*', '')
             if r ~= '' then names[tostring(i - 1)] = r; if (cfg.gear.names or {})[tostring(i - 1)] ~= r then changed = true end end
         end
         if changed then cfg.gear.names = names; FBX.save(); log('AutoWeapon: названия пунктов склада обновлены (' .. #rows .. ')') end
@@ -7190,7 +7210,10 @@ end
 
 -------------------------------------------------------------------------------
 -- AutoBuy в 24/7. Магазин узнаётся по «24/7» в заголовке или тексте диалога-списка, товары по названию.
--- Выбор товара, затем ответ на следующий диалог: количество (поле ввода) или подтверждение.
+-- После выбора товара сервер показывает список количества: заголовок «У вас 0 из 5 аптечек»,
+-- строки «1 аптечка за 450$», «2 аптечки за 900$»... Хелпер докупает до числа из настроек:
+-- нужно = выбрано − уже есть, и выбирает строку с этим числом (или самую большую, что меньше).
+-- Если докупать нечего, жмёт «Назад». Поле ввода и подтверждение тоже поддерживаются.
 -- Каждый диалог магазина пишется в helper.log, чтобы по нему можно было донастроить покупку.
 -------------------------------------------------------------------------------
 function GEAR.isShop(style, title, text)
@@ -7212,11 +7235,29 @@ function GEAR.plan(rows)
                 local low = U.lower(r)
                 local hit = false
                 for _, f in ipairs(g.find) do if low:find(f, 1, true) then hit = true end end
-                if hit then plan[#plan + 1] = { idx = i - 1, title = g.title, left = n, total = n } break end
+                if hit then plan[#plan + 1] = { idx = i - 1, title = g.title, key = g.key, want = n, left = 1, got = nil } break end
             end
         end
     end
     return plan
+end
+
+-- «У вас 1 из 3 масок» → 1, 3
+function GEAR.haveOf(title, text)
+    local s = lowerPlain((title or '') .. ' ' .. (text or ''))
+    local have, cap = s:match('у вас%s+(%d+)%s+из%s+(%d+)')
+    return tonumber(have), tonumber(cap)
+end
+
+-- Строка списка количества: точное число, иначе самое большое меньше нужного
+function GEAR.qtyRow(rows, need)
+    if need <= 0 then return nil end
+    local best, bestN
+    for i, r in ipairs(rows) do
+        local n = tonumber(r:match('^%s*(%d+)'))
+        if n and n <= need and (not bestN or n > bestN) then best, bestN = i - 1, n end
+    end
+    return best, bestN
 end
 
 function GEAR.onShop(id, style, title, text)
@@ -7227,19 +7268,36 @@ function GEAR.onShop(id, style, title, text)
         GEAR.buy, b = nil, nil
     end
     local shop = GEAR.isShop(style, title, text)
-    if shop and GEAR.logged < 12 then
+    local answer = b and b.cur and b.waiting and clock() - b.waiting < GEAR.ANSWER_SEC and not shop
+    if (shop or answer) and GEAR.logged < 30 then
         GEAR.logged = GEAR.logged + 1
-        log('AutoBuy: диалог магазина id=' .. tostring(id) .. ' стиль=' .. tostring(style) .. ' «' .. U.cut(U.stripColors(U.toUtf(text or '')):gsub('\n', ' | '), 160) .. '»')
+        log('AutoBuy: диалог id=' .. tostring(id) .. ' стиль=' .. tostring(style) .. ' «' .. U.cut(U.stripColors(U.toUtf(title or '')), 60) .. '» «' .. U.cut(U.stripColors(U.toUtf(text or '')):gsub('\n', ' | '), 160) .. '»')
     end
-    -- ответ магазина на наш выбор: количество или подтверждение
-    if b and b.cur and b.waiting and clock() - b.waiting < GEAR.ANSWER_SEC and not shop then
-        if style == 1 or style == 3 then
-            local n = b.cur.left + 1
-            b.cur.left, b.waiting, b.t = 0, clock(), clock()
-            GEAR.respond(id, 1, -1, tostring(n))
+    -- ответ магазина на наш выбор: список количества, поле ввода или подтверждение
+    if answer then
+        local e = b.cur
+        local have = GEAR.haveOf(title, text)
+        local need = math.max(0, e.want - (have or 0))
+        b.waiting, b.t = clock(), clock()
+        if style == 2 or style == 4 or style == 5 then
+            local idx, n = GEAR.qtyRow(GEAR.listRows(style, text), need)
+            b.waiting = nil
+            if idx then
+                e.got = n
+                log('AutoBuy: ' .. e.title .. ': есть ' .. tostring(have or '?') .. ', нужно ' .. e.want .. ', беру ' .. n)
+                GEAR.respond(id, 1, idx, '')
+            else
+                e.got = 0
+                log('AutoBuy: ' .. e.title .. ': уже есть ' .. tostring(have or '?') .. ' из нужных ' .. e.want)
+                GEAR.respond(id, 0, -1, '')
+            end
+            return false
+        elseif style == 1 or style == 3 then
+            b.waiting = nil
+            e.got = need
+            if need > 0 then GEAR.respond(id, 1, -1, tostring(need)) else GEAR.respond(id, 0, -1, '') end
             return false
         elseif style == 0 then
-            b.waiting, b.t = clock(), clock()
             GEAR.respond(id, 1, -1, '')
             return false
         end
@@ -7261,13 +7319,12 @@ function GEAR.onShop(id, style, title, text)
     end
     -- всё куплено: закрываем магазин
     local done = {}
-    for _, e in ipairs(b.plan) do done[#done + 1] = e.title .. ' ' .. e.total end
+    for _, e in ipairs(b.plan) do done[#done + 1] = e.title .. ' ' .. tostring(e.got or 0) end
     log('AutoBuy: куплено ' .. table.concat(done, ', '))
     GEAR.buy = nil
     GEAR.respond(id, 0, -1, '')
     return false
 end
-
 -- Все диалоги проходят сюда раньше служебных функций
 function GEAR.onShowDialog(id, style, title, b1, b2, text)
     GEAR.dlg.seq = GEAR.dlg.seq + 1
@@ -7828,15 +7885,7 @@ function PG.profile()
             imgui.SameLine(0, S(8))
             imgui.BeginGroup(); UI.dfield('Фамилия', 'pf_sur', UI.buf.surname, 'Петров', 0, half); imgui.EndGroup()
             UI.hint('Пусто: в отыгровках будет ник без подчёркивания.')
-            UI.label('Звание')
-            UI.dfield(nil, 'pf_rank', UI.buf.rank, 'Сержант', 0, -S(128))
-            imgui.SameLine(0, S(8))
-            imgui.SetNextItemWidth(-1)
-            if imgui.BeginCombo('##pf_ranks', 'Из списка') then
-                local list = UI.edit.dept == 'ФБР' and D.RANKS.fbi or D.RANKS.police
-                for i, r in ipairs(list) do if imgui.Selectable(r .. '##rk' .. i, false) then UI.setBuf(UI.buf.rank, r); UI.dirty = true end end
-                imgui.EndCombo()
-            end
+            UI.dfield('Звание', 'pf_rank', UI.buf.rank, 'Сержант')
             UI.dfield('Позывной для рации (Устав МВД 18.4)', 'pf_unit', UI.buf.unit, 'например L-12 или ADAM-3')
             UI.label('Подразделение')
             local depts = {}
@@ -7882,13 +7931,13 @@ function PG.gear()
         end, { w = w })
     end, function(w)
         UI.box('g_shop', 'Магазин 24/7 · AutoBuy', function()
-            UI.cfgCheck('Покупать автоматически##g_b', g, 'buy_on', 'Когда вы открываете магазин 24/7, хелпер сам покупает отмеченное количество. Товары ищутся по названию в списке магазина. Каждый диалог магазина записывается в helper.log.')
-            imgui.Spacing()
+            UI.cfgCheck('Покупать автоматически##g_b', g, 'buy_on', 'Когда вы открываете магазин 24/7, хелпер выбирает товар и сам отвечает на вопрос «Сколько вам нужно?»: докупает до указанного числа с учётом того, что уже есть. Каждый диалог магазина записывается в helper.log.')
+            UI.label('ДЕРЖАТЬ ПРИ СЕБЕ')
             for _, good in ipairs(UI.GEAR.GOODS) do
                 UI.rowLabel(good.title, S(150))
                 UI.cfgStep('g_buy_' .. good.key, g.buy, good.key, 0, 5, 1, '%d шт.')
             end
-            UI.hint('0 шт.: товар не покупается. Когда всё куплено, магазин закрывается.')
+            UI.hint('Например, 5 аптечек: при 2 в кармане хелпер купит 3. 0 шт.: товар не покупается. Сервер ограничивает максимум (аптечки 5, маски и ремкомплекты 3).')
         end, { w = w })
     end, S(290))
 end

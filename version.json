@@ -1,6 +1,6 @@
 {
- "version": "2.1.8",
- "size": 515748,
- "sha256": "848a9e778c310586d21ae7246dd831756b8a48a818a2545b2cb9de16a72d6606",
+ "version": "2.1.9",
+ "size": 516003,
+ "sha256": "48268a0c8e33038b447dd887536082bf78a295bfccf8c899cedaa5cfa72854cd",
  "file": "moonloader/KatrineHelper.lua"
 }

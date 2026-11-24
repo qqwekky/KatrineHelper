@@ -1,9 +1,58 @@
 {
  "schema": 2,
- "note": "Только сервисы без ключей и регистрации. Проверено по документации в ноябре 2026: Kilo AI Gateway (анонимно, 200 запросов в час на IP), OVHcloud AI Endpoints (анонимно, 2 запроса в минуту на IP и модель). LLM7 и Pollinations убраны: анонимный бесплатный доступ не подтверждён.",
+ "note": "Только сервисы без ключей и регистрации. Kilo AI Gateway: анонимно, 200 запросов в час на IP; бесплатные модели работают на общем лимите, поэтому хелпер спрашивает два сервиса сразу. OVHcloud без ключа с ноября 2026 даёт 1 запрос в год, убран.",
  "providers": [
-  {"name": "Kilo Auto Free", "type": "openai", "url": "https://ai-gateway.kilo.ai/api/v1/chat/completions", "model": "kilo-auto/free", "stream": true, "ttfb": 5, "total": 8, "priority": 1, "min_gap": 6, "hour_limit": 60, "cool429": 120},
-  {"name": "OVH Llama 3.3 70B", "type": "openai", "url": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions", "model": "Meta-Llama-3_3-70B-Instruct", "stream": true, "ttfb": 5, "total": 8, "priority": 2, "min_gap": 31, "hour_limit": 60, "cool429": 40},
-  {"name": "OVH Mistral Small", "type": "openai", "url": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions", "model": "Mistral-Small-3.2-24B-Instruct-2506", "stream": true, "ttfb": 5, "total": 8, "priority": 3, "min_gap": 31, "hour_limit": 60, "cool429": 40}
+  {
+   "name": "Kilo ERNIE 5.5 Flash",
+   "type": "openai",
+   "url": "https://ai-gateway.kilo.ai/api/v1/chat/completions",
+   "model": "baidu/ernie-5.5-flash-preview:free",
+   "stream": true,
+   "ttfb": 5,
+   "total": 12,
+   "priority": 1,
+   "min_gap": 3,
+   "hour_limit": 60,
+   "cool429": 30
+  },
+  {
+   "name": "Kilo Reflection Beam",
+   "type": "openai",
+   "url": "https://ai-gateway.kilo.ai/api/v1/chat/completions",
+   "model": "reflection/beam-free",
+   "stream": true,
+   "ttfb": 6,
+   "total": 15,
+   "priority": 2,
+   "min_gap": 3,
+   "hour_limit": 60,
+   "cool429": 30
+  },
+  {
+   "name": "Kilo Auto Free",
+   "type": "openai",
+   "url": "https://ai-gateway.kilo.ai/api/v1/chat/completions",
+   "model": "kilo-auto/free",
+   "stream": true,
+   "ttfb": 6,
+   "total": 15,
+   "priority": 3,
+   "min_gap": 3,
+   "hour_limit": 60,
+   "cool429": 30
+  },
+  {
+   "name": "Kilo Ling 3.2 Flash",
+   "type": "openai",
+   "url": "https://ai-gateway.kilo.ai/api/v1/chat/completions",
+   "model": "inclusionai/ling-3.2-flash:free",
+   "stream": true,
+   "ttfb": 6,
+   "total": 12,
+   "priority": 4,
+   "min_gap": 3,
+   "hour_limit": 60,
+   "cool429": 30
+  }
  ]
 }

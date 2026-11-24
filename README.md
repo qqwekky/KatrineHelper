@@ -63,11 +63,7 @@
 </p><p align="center">
   <a href="https://i.postimg.cc/fLNffN1C/sa-mp-0000100.png"><img width="900" src="https://i.postimg.cc/fLNffN1C/sa-mp-0000100.png" alt="Фон Альтушка риал лайф."></a>
   <br><em>Фон Альтушка риал лайф.</em>
-</p></details><h2>Установка</h2><p align="center"><img width="1000" src="docs/install.png" alt="Установка за три шага"></p><ol>
-<li>Нажми кнопку <strong>Скачать</strong>. Загрузится архив <strong>KatrineHelper.zip</strong>.</li>
-<li>Открой архив и перетащи папку <strong>moonloader</strong> в папку с игрой, туда где лежит gta_sa.exe. Если спросит про замену файлов, соглашайся.</li>
-<li>Зайди в игру и введи <strong>/kh</strong>. Хелпер сам предложит короткое обучение и скачает базу законов.</li>
-</ol><p>В архиве сам хелпер и две библиотеки, без которых он не запустится: mimgui и SAMP.Lua. Нужны только MoonLoader и SAMPFUNCS, они есть в большинстве сборок. Если хелпер у тебя уже стоит, ничего качать не надо, он обновляется сам.</p><p align="center"><a href="https://github.com/qqwekky/KatrineHelper/raw/main/KatrineHelper.zip"><img width="420" src="docs/download.png" alt="Скачать Katrine Helper"></a></p><h2>Команды</h2><ul>
+</p></details><h2>Установка</h2><p align="center"><img width="1000" src="docs/install.png" alt="Установка за три шага"></p><p><strong>Закинь содержимое архива в корень игры с заменой.</strong> Корень игры это папка, где лежит gta_sa.exe. Потом зайди в игру и введи <strong>/kh</strong>.</p><p>Основные компоненты:<br>MoonLoader v.027.0 preview3<br>SAMPFUNCS v5.7.1 для SA-MP 0.3.7 R1</p><p>Библиотеки:<br>mimgui, samp.events, encoding, vkeys, luasocket, luasec</p><p>Если хелпер у тебя уже стоит, ничего качать не надо, он обновляется сам.</p><p align="center"><a href="https://github.com/qqwekky/KatrineHelper/raw/main/KatrineHelper.zip"><img width="420" src="docs/download.png" alt="Скачать Katrine Helper"></a></p><h2>Команды</h2><ul>
 <li><strong>/kh</strong> Открывает меню.</li>
 <li><strong>/ask</strong> Задаёт вопрос ИИ. Вопрос можно написать сразу после команды.</li>
 <li><strong>/laws</strong> Открывает поиск по законам. Можно сразу указать номер статьи или текст.</li>

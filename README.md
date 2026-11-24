@@ -1,7 +1,7 @@
 <p align="center">
   <a href="https://github.com/qqwekky/KatrineHelper"><img width="1000" src="https://i.postimg.cc/N031W1NS/00-banner.png" alt="Katrine Helper AI"></a>
 </p><h1 align="center"><a href="https://github.com/qqwekky/KatrineHelper">Katrine Helper AI</a></h1>
-<p align="center"><a href="https://github.com/qqwekky/KatrineHelper"><strong>Хелпер для МВД на Advance RP Blue</strong></a></p><p>Всем привет! Сделал хелпер для <a href="https://i.pinimg.com/736x/86/eb/00/86eb0019f400df25a94bcc7344f25723.jpg">МВД-шников</a>. Можно спросить ИИ по законам сервера, быстро проверить человека по чёрным спискам МВД и <a href="https://forum.adv-rp.com/threads/gov-chernyi-spisok-federatsii.2160577/">Федерации</a>, настроить свои бинды и поручить хелперу доклады по патрулю.</p><h2>Спросить по законам</h2><p>Открываешь <strong>/ask</strong> и описываешь ситуацию как есть. Например:</p><blockquote><p>Как правильно проводить трафик-стоп 10-55? Как провести допрос? Какие статьи нарушил гражданский в этой ситуации?</p></blockquote><p>ИИ ищет нужные статьи в базе сервера и объясняет простыми словами, как они связаны с твоей ситуацией. В базе есть УК, АК, ПК, Устав МВД, федеральные законы, регламенты, программа Академии и пособие по КТО. Статьи из ответа можно открыть прямо в меню и прочитать целиком.</p><p>ИИ отвечает на основе базы законов и правил с форума Advance RP и использует только информацию из неё. Скачанную базу можно открыть через <strong>/laws</strong>. В ней больше полутора тысяч статей. Есть поиск по номеру, словам или точной фразе, а нужные статьи можно добавить в избранное.</p><p align="center">
+<p align="center"><a href="https://github.com/qqwekky/KatrineHelper"><strong>Хелпер для МВД на Advance RP Blue</strong></a></p><p align="center"><a href="https://github.com/qqwekky/KatrineHelper/raw/main/KatrineHelper.zip"><img width="420" src="docs/download.png" alt="Скачать Katrine Helper"></a></p><p>Всем привет! Сделал хелпер для <a href="https://i.pinimg.com/736x/86/eb/00/86eb0019f400df25a94bcc7344f25723.jpg">МВД-шников</a>. Можно спросить ИИ по законам сервера, быстро проверить человека по чёрным спискам МВД и <a href="https://forum.adv-rp.com/threads/gov-chernyi-spisok-federatsii.2160577/">Федерации</a>, настроить свои бинды и поручить хелперу доклады по патрулю.</p><h2>Спросить по законам</h2><p>Открываешь <strong>/ask</strong> и описываешь ситуацию как есть. Например:</p><blockquote><p>Как правильно проводить трафик-стоп 10-55? Как провести допрос? Какие статьи нарушил гражданский в этой ситуации?</p></blockquote><p>ИИ ищет нужные статьи в базе сервера и объясняет простыми словами, как они связаны с твоей ситуацией. В базе есть УК, АК, ПК, Устав МВД, федеральные законы, регламенты, программа Академии и пособие по КТО. Статьи из ответа можно открыть прямо в меню и прочитать целиком.</p><p>ИИ отвечает на основе базы законов и правил с форума Advance RP и использует только информацию из неё. Скачанную базу можно открыть через <strong>/laws</strong>. В ней больше полутора тысяч статей. Есть поиск по номеру, словам или точной фразе, а нужные статьи можно добавить в избранное.</p><p align="center">
   <a href="https://i.postimg.cc/1z6KFt7q/sa-mp-0000091.png"><img width="900" src="https://i.postimg.cc/1z6KFt7q/sa-mp-0000091.png" alt="Вопросы ИИ по законам сервера."></a>
   <br><em>Вопросы ИИ по законам сервера.</em>
 </p><p align="center">
@@ -63,11 +63,11 @@
 </p><p align="center">
   <a href="https://i.postimg.cc/fLNffN1C/sa-mp-0000100.png"><img width="900" src="https://i.postimg.cc/fLNffN1C/sa-mp-0000100.png" alt="Фон Альтушка риал лайф."></a>
   <br><em>Фон Альтушка риал лайф.</em>
-</p></details><h2>Установка</h2><ol>
-<li>Для стабильной работы нужен <strong>MoonLoader 0.27</strong>. Также нужны <strong>SAMPFUNCS</strong>, <strong>SAMP.Lua</strong>, <strong>mimgui</strong> и <strong>vkeys</strong>. Для ИИ нужны <strong>luasocket</strong> и <strong>luasec</strong>. Они есть в сборке MoonLoader с библиотеками.</li>
-<li>Скачай <strong>KatrineHelper.lua</strong> и закинь в папку <strong>moonloader</strong>.</li>
-<li>Запусти игру и введи <strong>/kh</strong>. Базы подтянутся сами.</li>
-</ol><h2>Команды</h2><ul>
+</p></details><h2>Установка</h2><p align="center"><img width="1000" src="docs/install.png" alt="Установка за три шага"></p><ol>
+<li>Нажми кнопку <strong>Скачать</strong>. Загрузится архив <strong>KatrineHelper.zip</strong>.</li>
+<li>Открой архив и перетащи папку <strong>moonloader</strong> в папку с игрой, туда где лежит gta_sa.exe. Если спросит про замену файлов, соглашайся.</li>
+<li>Зайди в игру и введи <strong>/kh</strong>. Хелпер сам предложит короткое обучение и скачает базу законов.</li>
+</ol><p>В архиве сам хелпер и две библиотеки, без которых он не запустится: mimgui и SAMP.Lua. Нужны только MoonLoader и SAMPFUNCS, они есть в большинстве сборок. Если хелпер у тебя уже стоит, ничего качать не надо, он обновляется сам.</p><p align="center"><a href="https://github.com/qqwekky/KatrineHelper/raw/main/KatrineHelper.zip"><img width="420" src="docs/download.png" alt="Скачать Katrine Helper"></a></p><h2>Команды</h2><ul>
 <li><strong>/kh</strong> Открывает меню.</li>
 <li><strong>/ask</strong> Задаёт вопрос ИИ. Вопрос можно написать сразу после команды.</li>
 <li><strong>/laws</strong> Открывает поиск по законам. Можно сразу указать номер статьи или текст.</li>
@@ -76,7 +76,7 @@
 <li><strong>/sus ID</strong> Помогает оформить розыск со статьёй из базы.</li>
 <li><strong>/cuff, /search, /ticket</strong> Запускают нужное действие с отыгровкой.</li>
 <li><strong>/stoprp</strong> Останавливает отыгровку и чистит очередь.</li>
-</ul><p>Остальные команды и их тексты лежат в разделе <strong>Биндер</strong>.</p><h2><a href="https://github.com/qqwekky/KatrineHelper">Скачать с GitHub</a></h2><h2>Что уходит в сеть</h2><ul>
+</ul><p>Остальные команды и их тексты лежат в разделе <strong>Биндер</strong>.</p><p align="center"><a href="https://github.com/qqwekky/KatrineHelper/raw/main/KatrineHelper.zip"><img width="420" src="docs/download.png" alt="Скачать Katrine Helper"></a></p><h2>Что уходит в сеть</h2><ul>
 <li>Когда задаёшь вопрос ИИ, бесплатный сервис получает текст вопроса и найденные статьи. Игровой чат и ники окружающих игроков хелпер сам не добавляет. ИИ можно выключить в настройках.</li>
 <li>База законов и чёрные списки скачиваются и хранятся у тебя на компьютере.</li>
 </ul><p align="center"><strong>Автор <a href="https://github.com/qqwekky">qqwekky</a></strong></p><p><strong>Скрипт буду обновлять и дорабатывать. Если заметил баг или есть идеи, что улучшить, буду благодарен за фидбек.</strong></p><p>Нашёл баг? Кидай в тему на форуме или напиши в Discord qqwekky, посмотрю.</p>
